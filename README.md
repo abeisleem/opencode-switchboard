@@ -73,7 +73,9 @@ bun run demo          # fixture panel, no server needed
 ```
 
 Running `opencode` in this directory loads the plugin from source through
-`.opencode/opencode.jsonc`; edits hot-reload.
+`.opencode/opencode.jsonc`. The server part reloads on edit; a running TUI does not
+re-import the TUI part when only its source changes, so restart the TUI to test
+panel changes.
 
 Slower checks, run before releases:
 
