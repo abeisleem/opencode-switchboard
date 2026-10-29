@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "opencode-inbox",
+  "name": "opencode-switchboard",
   "version": "0.1.0",
-  "description": "OpenCode plugin: a project-grouped work inbox that replaces the session tab panel — see what's running, what needs you, and park work for later.",
+  "description": "OpenCode plugin: a project-grouped switchboard for your sessions that replaces the tab panel — see what's running, what needs you, and park work for later.",
   "type": "module",
   "exports": {
     ".": "./src/server.ts",
@@ -34,18 +34,18 @@
     "plugin",
     "tabs",
     "sessions",
-    "inbox"
+    "switchboard"
   ],
   "author": "Abe Isleem",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/abeisleem/opencode-inbox.git"
+    "url": "git+https://github.com/abeisleem/opencode-switchboard.git"
   },
   "bugs": {
-    "url": "https://github.com/abeisleem/opencode-inbox/issues"
+    "url": "https://github.com/abeisleem/opencode-switchboard/issues"
   },
-  "homepage": "https://github.com/abeisleem/opencode-inbox#readme",
+  "homepage": "https://github.com/abeisleem/opencode-switchboard#readme",
   "publishConfig": {
     "access": "public"
   },

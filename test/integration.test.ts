@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { OpenCode } from "@opencode/client"
-import { Inbox } from "../src/rpc"
+import { Switchboard } from "../src/rpc"
 import { loadCatalog } from "../src/catalog"
 
 test("real private server loads only in its sandbox, shares actions, and persists on restart", async () => {
@@ -28,7 +28,7 @@ test("real private server loads only in its sandbox, shares actions, and persist
     baseUrl: `http://127.0.0.1:${port}`,
     headers: { authorization: `Basic ${Buffer.from("opencode:inbox-test").toString("base64")}` },
   })
-  const rpc = client.rpc(Inbox)
+  const rpc = client.rpc(Switchboard)
   let processHandle: ReturnType<typeof Bun.spawn> | undefined
   async function start() {
     processHandle = Bun.spawn(["opencode", "serve", "--hostname", "127.0.0.1", "--port", String(port)], {

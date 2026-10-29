@@ -12,7 +12,7 @@
 # Package shape
 
 - One npm package with three parts: `.` (server: storage + RPC), `./tui` (panel),
-  `./rpc` (typed contract shared by both). The plugin `id` (`opencode-inbox`)
+  `./rpc` (typed contract shared by both). The plugin `id` (`opencode-switchboard`)
   namespaces server storage and the RPC; changing it orphans saved user state.
 - `@opencode/plugin` is pinned to the OpenCode release we target (currently 2.2.0)
   and provided by the host at runtime, as are `effect`, `solid-js`, and
@@ -39,5 +39,5 @@
 - Planned migration of the server part to the Effect API
   (`@opencode/plugin/effect`): `effect` stays a peer dependency (host-provided,
   never bundled), pinned as a dev dependency to the version `@opencode/plugin` uses.
-- The inbox never deletes, archives, or stops sessions. Deletion belongs to
+- The switchboard never deletes, archives, or stops sessions. Deletion belongs to
   OpenCode's native session list.

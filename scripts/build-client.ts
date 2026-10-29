@@ -29,7 +29,7 @@ await Bun.write(
   path.join(destination, "package.json"),
   JSON.stringify(
     {
-      name: "opencode-inbox-client",
+      name: "opencode-switchboard-client",
       version: "0.1.0",
       private: true,
       type: "module",

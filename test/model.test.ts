@@ -153,7 +153,7 @@ test("shared selection is followed without leaving its conversation family", () 
     type: "session",
     sessionID: "a",
   })
-  expect(followRoute({ type: "plugin", id: "opencode-inbox", name: "inbox" }, "a", root)).toEqual({
+  expect(followRoute({ type: "plugin", id: "opencode-switchboard", name: "inbox" }, "a", root)).toEqual({
     type: "session",
     sessionID: "a",
   })

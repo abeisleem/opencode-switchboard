@@ -6,7 +6,7 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const plugin = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "")
-const root = await mkdtemp("/tmp/opencode/inbox-pty-")
+const root = await mkdtemp("/tmp/opencode/switchboard-pty-")
 const directory = `${root}/project`
 await mkdir(`${directory}/.opencode`, { recursive: true })
 await mkdir(`${plugin}/artifacts`, { recursive: true })
@@ -24,7 +24,7 @@ if (bundled) {
   await writeFile(
     `${directory}/package.json`,
     JSON.stringify({
-      name: "inbox-smoke-server",
+      name: "switchboard-smoke-server",
       type: "module",
       exports: { ".": "./server.ts" },
     }),
@@ -121,8 +121,8 @@ let passed = false
 try {
   if (!autoOpen) {
     await wait((text) => text.includes("Ask") || text.includes("Build ·"))
-    child.write("/inbox")
-    await wait((text) => text.includes("Open project inbox"))
+    child.write("/switchboard")
+    await wait((text) => text.includes("Open switchboard"))
     child.write(shortcut ? "\x15\x18i" : "\r")
   }
   // Headings render before their sessions load; wait for the session row itself.

@@ -1,7 +1,7 @@
-# opencode-inbox
+# opencode-switchboard
 
-An OpenCode plugin that turns the session tab panel into a project-grouped work
-inbox: see which sessions are running, which need you, and park work for later
+An OpenCode plugin that turns the session tab panel into a project-grouped
+switchboard: see which sessions are running, which need you, and park work for later
 without losing it.
 
 > Status: early preview (0.x). Requires OpenCode 2.2.0. The panel currently opens
@@ -15,16 +15,16 @@ project's `.opencode/opencode.jsonc`):
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["opencode-inbox"],
+  "plugins": ["opencode-switchboard"],
 }
 ```
 
-One entry loads both parts. The server part stores the inbox; every TUI connected
+One entry loads both parts. The server part stores the switchboard; every TUI connected
 to that server (including remote `opencode --server …` clients) loads the panel.
 
 ## Use
 
-Open it with `/inbox` or **Ctrl+X, then I** (`<leader>i`). Pressing it again while
+Open it with `/switchboard` or **Ctrl+X, then I** (`<leader>i`). Pressing it again while
 the panel is open focuses the panel on the current conversation.
 
 - **Projects → sessions.** Active sessions sit under their project; **Later** is one
@@ -50,7 +50,7 @@ the panel is open focuses the panel on the current conversation.
 Clicking a row while the panel is unfocused opens it and keeps focus in the
 conversation.
 
-**The inbox never deletes, archives, or stops sessions.** Closing only removes a
+**The switchboard never deletes, archives, or stops sessions.** Closing only removes a
 session from the panel; opening it again brings it back. Delete sessions through
 OpenCode's native session list.
 
@@ -85,7 +85,7 @@ bun run smoke && bun run smoke:client   # real TUI in a PTY
 bun run pack:dry-run
 ```
 
-Render errors are appended to `$TMPDIR/opencode-inbox-errors.log`, since OpenCode's
+Render errors are appended to `$TMPDIR/opencode-switchboard-errors.log`, since OpenCode's
 own plugin boundary only shows a toast.
 
 Design notes live in [`docs/design`](docs/design).

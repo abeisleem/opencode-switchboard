@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { RGBA } from "@opentui/core"
 import { createEffect, createMemo, createSignal, ErrorBoundary, on, onCleanup, onMount, Show } from "solid-js"
-import { Inbox } from "./rpc"
+import { Switchboard } from "./rpc"
 import { initialState, laterKey, projectOf, type Action, type Session, type State } from "./model"
 import { loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
@@ -12,7 +12,7 @@ import { InboxPanel, tint, type Palette, type PanelProps } from "./panel"
 import { createSelectionMemory, followRoute } from "./selection"
 
 /** The host's plugin boundary only toasts render crashes; keep the stack for diagnosis. */
-const ERROR_LOG = join(tmpdir(), "opencode-inbox-errors.log")
+const ERROR_LOG = join(tmpdir(), "opencode-switchboard-errors.log")
 function logError(where: string, cause: unknown) {
   let detail = cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)
   if (typeof cause === "object" && cause !== null) {
@@ -25,7 +25,7 @@ function logError(where: string, cause: unknown) {
   } catch {}
 }
 
-const PANEL = "inbox"
+const PANEL = "switchboard"
 
 type Controls = Parameters<NonNullable<PanelProps["keys"]>>[0]
 type LocationProject = { directory: string; project: { id: string; canonical: string } }
@@ -46,13 +46,13 @@ function locationProject(value: unknown): LocationProject | undefined {
 }
 
 export default Plugin.define({
-  id: "opencode-inbox",
+  id: "opencode-switchboard",
   setup(ctx) {
     const directory =
       typeof ctx.options.backendDirectory === "string"
         ? ctx.options.backendDirectory
         : (ctx.location ?? ctx.data.location.default()).directory
-    const rpc = ctx.client.rpc(Inbox)
+    const rpc = ctx.client.rpc(Switchboard)
     const options = { location: { directory } }
     const [state, setState] = createSignal(initialState())
     const [sessions, setSessions] = createSignal<Session[]>([])
@@ -90,7 +90,7 @@ export default Plugin.define({
       setError(cause instanceof Error ? cause.message : String(cause))
     }
     function showPanel() {
-      if (!ctx.ui.panel.open(PANEL)) ctx.ui.router.navigate({ type: "plugin", name: "inbox" })
+      if (!ctx.ui.panel.open(PANEL)) ctx.ui.router.navigate({ type: "plugin", name: "switchboard" })
     }
     function accept(next: State) {
       // Revisions only grow; an equal one is the state already shown (e.g. a duplicate snapshot).
@@ -232,13 +232,13 @@ export default Plugin.define({
     }
     const help = () =>
       ctx.ui.dialog.alert({
-        title: "Inbox controls",
+        title: "Switchboard controls",
         message:
-          "↑/↓ or j/k: select · Enter: open/fold\nu: read/unread · a: Active · l: Later\nx: close session/project — never delete\nr: refresh · d: refresh details · Esc: close panel\n\nCtrl+O opens a project or session in the inbox.\nCtrl+X I focuses the inbox on the current conversation.\n\n• unread · ⠋ running · ? question · ! approval\n× error · ~ workspace missing or cached attention\nBold: the current conversation\n\nClosed sessions return when you open them again.",
+          "↑/↓ or j/k: select · Enter: open/fold\nu: read/unread · a: Active · l: Later\nx: close session/project — never delete\nr: refresh · d: refresh details · Esc: close panel\n\nCtrl+O opens a project or session in the switchboard.\nCtrl+X I focuses the switchboard on the current conversation.\n\n• unread · ⠋ running · ? question · ! approval\n× error · ~ workspace missing or cached attention\nBold: the current conversation\n\nClosed sessions return when you open them again.",
       })
     const diagnostics = () =>
       ctx.ui.dialog.alert({
-        title: "Inbox refresh details",
+        title: "Switchboard refresh details",
         message:
           [error(), refreshError(), ...issues()].filter(Boolean).join("\n\n") ||
           "All location attention reads are current.",
@@ -272,7 +272,7 @@ export default Plugin.define({
             logError("render", cause)
             return (
               <text fg={ctx.theme.text.feedback.error.base} onMouseDown={reset}>
-                {`Inbox error: ${cause instanceof Error ? cause.message : String(cause)}\n(logged to ${ERROR_LOG}; click to retry)`}
+                {`Switchboard error: ${cause instanceof Error ? cause.message : String(cause)}\n(logged to ${ERROR_LOG}; click to retry)`}
               </text>
             )
           }}
@@ -320,7 +320,7 @@ export default Plugin.define({
         </ErrorBoundary>
       )
     }
-    const stopRoute = ctx.ui.router.register({ name: "inbox", render: () => panel(() => true) })
+    const stopRoute = ctx.ui.router.register({ name: "switchboard", render: () => panel(() => true) })
     const stopPanel = ctx.ui.slot({
       append: "session.panel",
       render: (input) => (
@@ -391,15 +391,15 @@ export default Plugin.define({
       priority: 10,
       commands: [
         {
-          id: "opencode-inbox.open",
-          title: "Open inbox",
+          id: "opencode-switchboard.open",
+          title: "Open switchboard",
           bind: "<leader>i",
           palette: true,
-          slash: { name: "inbox" },
+          slash: { name: "switchboard" },
           run: openInbox,
         },
       ],
-      bindings: ["opencode-inbox.open"],
+      bindings: ["opencode-switchboard.open"],
     }))
     const stopEvents = rpc.events.on("changed", () => {
       if (enabled) void rpc.snapshot({}, options).then(accept).catch(report)

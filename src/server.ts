@@ -1,10 +1,10 @@
 import { Plugin } from "@opencode/plugin"
-import { Inbox } from "./rpc"
+import { Switchboard } from "./rpc"
 import { createInboxStore } from "./store"
 import { reduce, type Admission } from "./model"
 
 export default Plugin.define({
-  id: "opencode-inbox",
+  id: "opencode-switchboard",
   async setup(ctx) {
     const store = createInboxStore(ctx.storage, async (state, action) => {
       let admission: Admission | undefined
@@ -13,7 +13,7 @@ export default Plugin.define({
         admission = { project: action.project, name: action.name, sessions: [] }
       if ("sessionID" in action) {
         const session = await ctx.session.get({ sessionID: action.sessionID })
-        if (session.parentID) throw new Error("Inbox actions require a root session")
+        if (session.parentID) throw new Error("Switchboard actions require a root session")
         if (
           (action.type === "read" || action.type === "select") &&
           action.observed > (session.time.idle ?? 0)
@@ -35,7 +35,7 @@ export default Plugin.define({
       }
       return reduce(state, action, admission)
     })
-    const registration = await ctx.rpc.register(Inbox, {
+    const registration = await ctx.rpc.register(Switchboard, {
       snapshot: () => store.snapshot(),
       act: async (action) => {
         const next = await store.act(action)
