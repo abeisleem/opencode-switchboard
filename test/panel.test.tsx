@@ -169,3 +169,30 @@ test("running sessions animate their indicator", async () => {
     await app.dispose()
   }
 })
+
+test("a highlighted overflowing title scrolls left after a pause, then returns to its start", async () => {
+  const app = await testRender(() => <Demo />, { width: 26, height: 30 })
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    const y = lineOf(app, "Review provider")
+    const title = () => app.captureCharFrame().split("\n")[y]!.slice(3, 23)
+    expect(title()).toBe("Review provider conf")
+    await app.mockMouse.moveTo(8, y)
+    await app.renderOnce()
+    // Still at rest during the initial pause.
+    expect(title()).toBe("Review provider conf")
+    await Bun.sleep(600 + 80 * 3 + 40)
+    await app.renderOnce()
+    // A few cells in (exact ticks vary): the start has scrolled away, revealing the end.
+    expect(title()).not.toStartWith("Review")
+    expect(title()).toContain("provider config")
+    // Leaving the row resets the title.
+    await app.mockMouse.moveTo(8, lineOf(app, "Choose navigation"))
+    await app.renderOnce()
+    await app.renderOnce()
+    expect(app.captureCharFrame().split("\n")[y]!.slice(3, 23)).toBe("Review provider conf")
+  } finally {
+    await app.dispose()
+  }
+})

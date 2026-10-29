@@ -45,15 +45,63 @@ export function tint(base: RGBA, overlay: RGBA, alpha: number) {
 const FADE_WIDTH = 4
 const cellWidth = (value: string) => (typeof Bun === "undefined" ? value.length : Bun.stringWidth(value))
 
-/** One line clipped to its measured width; when it overflows, the last cells fade into the background as in the native rail. */
-function FadeText(props: { text: string; fg: string | RGBA; background: string | RGBA; bold?: boolean }) {
+const MARQUEE_GAP = " · "
+const MARQUEE_DELAY = 600
+const MARQUEE_INTERVAL = 80
+
+/**
+ * One line clipped to its measured width; when it overflows, the last cells fade into the
+ * background as in the native rail. With `scroll`, an overflowing line scrolls left once
+ * through a ` · ` loop after a short pause, with timing matching the native tab marquee.
+ */
+function FadeText(props: {
+  text: string
+  fg: string | RGBA
+  background: string | RGBA
+  bold?: boolean
+  scroll?: boolean
+}) {
   let box: BoxRenderable | undefined
   const [width, setWidth] = createSignal(0)
+  const [offset, setOffset] = createSignal(0)
+  const overflows = createMemo(() => cellWidth(props.text) > width())
+  createEffect(
+    on(
+      () => Boolean(props.scroll) && overflows() && width() > FADE_WIDTH * 2,
+      (active) => {
+        if (!active) return
+        const cycle = Array.from(props.text + MARQUEE_GAP).length
+        let interval: ReturnType<typeof setInterval> | undefined
+        const delay = setTimeout(() => {
+          setOffset(1)
+          interval = setInterval(
+            () =>
+              setOffset((value) => {
+                if (value + 1 < cycle) return value + 1
+                clearInterval(interval)
+                return 0
+              }),
+            MARQUEE_INTERVAL,
+          )
+        }, MARQUEE_DELAY)
+        onCleanup(() => {
+          clearTimeout(delay)
+          clearInterval(interval)
+          setOffset(0)
+        })
+      },
+    ),
+  )
+  const source = createMemo(() => {
+    if (offset() === 0) return props.text
+    const loop = Array.from(props.text + MARQUEE_GAP)
+    return [...loop.slice(offset()), ...loop].join("")
+  })
   const visible = createMemo(
     () => {
       const result: string[] = []
       let used = 0
-      for (const part of Array.from(props.text)) {
+      for (const part of Array.from(source())) {
         used += cellWidth(part)
         if (used > width()) return { parts: result, overflows: true }
         result.push(part)
@@ -64,14 +112,16 @@ function FadeText(props: { text: string; fg: string | RGBA; background: string |
     // Same text at the same width: keep the old result so the spans are not rebuilt.
     { equals: (a, b) => a?.overflows === b.overflows && a.parts.join("") === b.parts.join("") },
   )
-  // Only the last cells fade, so render the rest as one plain string and the tail as a few spans.
-  const head = createMemo(() => visible().parts.slice(0, -FADE_WIDTH).join(""))
+  // Only edge cells fade, so render the middle as one plain string and the edges as a few spans.
+  const lead = createMemo(() => (offset() > 0 ? visible().parts.slice(0, FADE_WIDTH) : []))
+  const middle = createMemo(() => visible().parts.slice(lead().length, -FADE_WIDTH).join(""))
   const tail = createMemo(() => visible().parts.slice(-FADE_WIDTH))
-  const fades = createMemo(() => {
+  const fade = (index: number) => {
     const fg = rgba(props.fg)
-    const background = rgba(props.background)
-    return tail().map((_, index) => tint(fg, background, 0.2 + (0.72 * index) / (FADE_WIDTH - 1)))
-  })
+    return tint(fg, rgba(props.background), 0.2 + (0.72 * index) / (FADE_WIDTH - 1))
+  }
+  const tailFades = createMemo(() => tail().map((_, index) => fade(index)))
+  const leadFades = createMemo(() => lead().map((_, index) => fade(FADE_WIDTH - 1 - index)))
   return (
     <box
       ref={box}
@@ -84,8 +134,13 @@ function FadeText(props: { text: string; fg: string | RGBA; background: string |
     >
       <text fg={props.fg} wrapMode="none" attributes={props.bold ? TextAttributes.BOLD : undefined}>
         <Show when={visible().overflows && width() > FADE_WIDTH} fallback={props.text}>
-          {head()}
-          <Index each={tail()}>{(part, index) => <span style={{ fg: fades()[index] }}>{part()}</span>}</Index>
+          <Index each={lead()}>
+            {(part, index) => <span style={{ fg: leadFades()[index] }}>{part()}</span>}
+          </Index>
+          {middle()}
+          <Index each={tail()}>
+            {(part, index) => <span style={{ fg: tailFades()[index] }}>{part()}</span>}
+          </Index>
         </Show>
       </text>
     </box>
@@ -368,10 +423,14 @@ export function InboxPanel(props: PanelProps) {
                   >
                     {key.startsWith("heading:") ? (
                       <box flexDirection="row" height={1} paddingLeft={1 + heading().depth * 2}>
+                        <text width={2} flexShrink={0} fg={lit() ? props.colors.text : props.colors.muted}>
+                          {heading().closed ? "▸ " : "▾ "}
+                        </text>
                         <FadeText
-                          text={`${heading().closed ? "▸" : "▾"} ${heading().title}`}
+                          text={heading().title}
                           fg={lit() ? props.colors.text : props.colors.muted}
                           background={background()}
+                          scroll={lit()}
                         />
                         <Show when={heading().badges}>
                           <text fg={lit() ? props.colors.text : props.colors.muted}>{heading().badges}</text>
@@ -398,6 +457,7 @@ export function InboxPanel(props: PanelProps) {
                             fg={lit() || current() ? props.colors.text : props.colors.muted}
                             background={background()}
                             bold={current()}
+                            scroll={lit()}
                           />
                           {close(() => props.act({ type: "session-remove", sessionID: session().id }))}
                         </box>
