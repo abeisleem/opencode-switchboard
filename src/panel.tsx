@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, onMount, Show } from "solid-js"
 import { RGBA, TextAttributes, type BoxRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
 import {
@@ -48,22 +48,29 @@ const cellWidth = (value: string) => (typeof Bun === "undefined" ? value.length 
 function FadeText(props: { text: string; fg: string | RGBA; background: string | RGBA; bold?: boolean }) {
   let box: BoxRenderable | undefined
   const [width, setWidth] = createSignal(0)
-  const visible = createMemo(() => {
-    const result: string[] = []
-    let used = 0
-    for (const part of Array.from(props.text)) {
-      used += cellWidth(part)
-      if (used > width()) return { parts: result, overflows: true }
-      result.push(part)
-    }
-    return { parts: result, overflows: false }
+  const visible = createMemo(
+    () => {
+      const result: string[] = []
+      let used = 0
+      for (const part of Array.from(props.text)) {
+        used += cellWidth(part)
+        if (used > width()) return { parts: result, overflows: true }
+        result.push(part)
+      }
+      return { parts: result, overflows: false }
+    },
+    undefined,
+    // Same text at the same width: keep the old result so the spans are not rebuilt.
+    { equals: (a, b) => a?.overflows === b.overflows && a.parts.join("") === b.parts.join("") },
+  )
+  // Only the last cells fade, so render the rest as one plain string and the tail as a few spans.
+  const head = createMemo(() => visible().parts.slice(0, -FADE_WIDTH).join(""))
+  const tail = createMemo(() => visible().parts.slice(-FADE_WIDTH))
+  const fades = createMemo(() => {
+    const fg = rgba(props.fg)
+    const background = rgba(props.background)
+    return tail().map((_, index) => tint(fg, background, 0.2 + (0.72 * index) / (FADE_WIDTH - 1)))
   })
-  const color = (index: number) => {
-    const length = visible().parts.length
-    const end = index - (length - FADE_WIDTH) + 1
-    if (end <= 0) return props.fg
-    return tint(rgba(props.fg), rgba(props.background), 0.2 + 0.72 * ((end - 1) / (FADE_WIDTH - 1)))
-  }
   return (
     <box
       ref={box}
@@ -76,9 +83,8 @@ function FadeText(props: { text: string; fg: string | RGBA; background: string |
     >
       <text fg={props.fg} wrapMode="none" attributes={props.bold ? TextAttributes.BOLD : undefined}>
         <Show when={visible().overflows && width() > FADE_WIDTH} fallback={props.text}>
-          <For each={visible().parts}>
-            {(part, index) => <span style={{ fg: color(index()) }}>{part}</span>}
-          </For>
+          {head()}
+          <Index each={tail()}>{(part, index) => <span style={{ fg: fades()[index] }}>{part()}</span>}</Index>
         </Show>
       </text>
     </box>
@@ -259,8 +265,12 @@ export function InboxPanel(props: PanelProps) {
       if (row?.kind === "session") props.act({ type: "session-remove", sessionID: row.session.id })
     },
   })
+  const sameKeys = (a: string[], b: string[]) => a.length === b.length && a.every((key, i) => key === b[i])
+  const keys = createMemo(() => items().map(rowKey), [], { equals: sameKeys })
+  const entries = createMemo(() => new Map(items().map((row, index) => [rowKey(row), { row, index }])))
+  // Animate only for running rows on screen, not every running session the catalog knows.
   const animating = createMemo(() =>
-    props.sessions.some((session) => session.running || session.status === "Queued"),
+    items().some((row) => row.kind === "session" && (row.session.running || row.session.status === "Queued")),
   )
   const [frame, setFrame] = createSignal(0)
   createEffect(() => {
@@ -290,9 +300,15 @@ export function InboxPanel(props: PanelProps) {
           }
         >
           <box flexDirection="column" gap={1}>
-            <For each={items()}>
-              {(row, index) => {
-                const key = rowKey(row)
+            <For each={keys()}>
+              {(key) => {
+                // Rows keep their identity across refreshes; only what changed re-renders.
+                // Keep the last entry so a row being removed never reads a missing one.
+                let last = entries().get(key)!
+                const entry = createMemo(() => (last = entries().get(key) ?? last), last, {
+                  equals: (a, b) => a.index === b.index && JSON.stringify(a.row) === JSON.stringify(b.row),
+                })
+                const index = () => entry().index
                 const lit = () => hovered() === key || (props.focused && cursor() === index())
                 const background = () => (lit() ? props.colors.highlight : props.colors.background)
                 const hover = () => {
@@ -316,10 +332,20 @@ export function InboxPanel(props: PanelProps) {
                     {lit() ? " ✕" : "  "}
                   </text>
                 )
+                const heading = () => entry().row as Extract<Row, { kind: "heading" }>
+                const item = () => entry().row as Extract<Row, { kind: "session" }>
+                const session = () => item().session
+                const indent = () => (item().depth - 1) * 2
+                const fg = () =>
+                  lit()
+                    ? props.colors.highlightText
+                    : props.state.selected === session().id
+                      ? props.colors.current
+                      : props.colors.muted
                 return (
                   <box
                     flexDirection="column"
-                    height={rowDetail(row) ? 2 : 1}
+                    height={rowDetail(entry().row) ? 2 : 1}
                     backgroundColor={lit() ? props.colors.highlight : undefined}
                     onMouseMove={hover}
                     onMouseOver={hover}
@@ -334,66 +360,49 @@ export function InboxPanel(props: PanelProps) {
                       enter(keepFocus)
                     }}
                   >
-                    {row.kind === "heading" ? (
-                      <box flexDirection="row" height={1} paddingLeft={1 + row.depth * 2}>
+                    {key.startsWith("heading:") ? (
+                      <box flexDirection="row" height={1} paddingLeft={1 + heading().depth * 2}>
                         <FadeText
-                          text={`${row.closed ? "▸" : "▾"} ${row.title}`}
+                          text={`${heading().closed ? "▸" : "▾"} ${heading().title}`}
                           fg={lit() ? props.colors.highlightText : props.colors.muted}
                           background={background()}
                           bold={lit()}
                         />
-                        <Show when={row.badges}>
+                        <Show when={heading().badges}>
                           <text fg={lit() ? props.colors.highlightText : props.colors.muted}>
-                            {row.badges}
+                            {heading().badges}
                           </text>
                         </Show>
-                        {row.depth === 0
-                          ? close(() => props.act({ type: "project-close", project: row.key }))
+                        {heading().depth === 0
+                          ? close(() => props.act({ type: "project-close", project: heading().key }))
                           : null}
                       </box>
                     ) : (
-                      (() => {
-                        const current = () => props.state.selected === row.session.id
-                        const indent = (row.depth - 1) * 2
-                        const fg = () =>
-                          lit()
-                            ? props.colors.highlightText
-                            : current()
-                              ? props.colors.current
-                              : props.colors.muted
-                        return (
-                          <>
-                            <box flexDirection="row" height={1}>
-                              <text
-                                width={3 + indent}
-                                flexShrink={0}
-                                fg={lit() ? props.colors.highlightText : indicator(row.session)[1]}
-                                wrapMode="none"
-                              >
-                                {`${indicator(row.session)[0].padStart(2)} ${" ".repeat(indent)}`}
-                              </text>
+                      <>
+                        <box flexDirection="row" height={1}>
+                          <text
+                            width={3 + indent()}
+                            flexShrink={0}
+                            fg={lit() ? props.colors.highlightText : indicator(session())[1]}
+                            wrapMode="none"
+                          >
+                            {`${indicator(session())[0].padStart(2)} ${" ".repeat(indent())}`}
+                          </text>
+                          <FadeText text={session().title} fg={fg()} background={background()} bold={lit()} />
+                          {close(() => props.act({ type: "session-remove", sessionID: session().id }))}
+                        </box>
+                        <Show when={rowDetail(item())}>
+                          {(detail) => (
+                            <box flexDirection="row" height={1} paddingLeft={3 + indent()} paddingRight={2}>
                               <FadeText
-                                text={row.session.title}
-                                fg={fg()}
+                                text={detail()}
+                                fg={lit() ? props.colors.highlightText : props.colors.detail}
                                 background={background()}
-                                bold={lit()}
                               />
-                              {close(() => props.act({ type: "session-remove", sessionID: row.session.id }))}
                             </box>
-                            <Show when={rowDetail(row)}>
-                              {(detail) => (
-                                <box flexDirection="row" height={1} paddingLeft={3 + indent} paddingRight={2}>
-                                  <FadeText
-                                    text={detail()}
-                                    fg={lit() ? props.colors.highlightText : props.colors.detail}
-                                    background={background()}
-                                  />
-                                </box>
-                              )}
-                            </Show>
-                          </>
-                        )
-                      })()
+                          )}
+                        </Show>
+                      </>
                     )}
                   </box>
                 )

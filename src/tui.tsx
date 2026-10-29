@@ -75,6 +75,7 @@ export default Plugin.define({
     let timer: ReturnType<typeof setTimeout> | undefined
     let membership = ""
     let refreshAgain = false
+    let lastCatalog = ""
     // The mounted side panel's controls and the host's focus function for it.
     let controls: Controls | undefined
     let focusPanel: (() => void) | undefined
@@ -91,7 +92,8 @@ export default Plugin.define({
       if (!ctx.ui.panel.open(PANEL)) ctx.ui.router.navigate({ type: "plugin", name: "inbox" })
     }
     function accept(next: State) {
-      if (stopped || next.revision < state().revision) return
+      // Revisions only grow; an equal one is the state already shown (e.g. a duplicate snapshot).
+      if (stopped || next.revision <= state().revision) return
       const changed = next.navigation !== state().navigation
       const admitted = Object.entries(next.projects)
         .filter(([, project]) => project.open)
@@ -133,7 +135,12 @@ export default Plugin.define({
         accept(await rpc.snapshot({}, options))
         const result = await loadCatalog(ctx.client, state(), attention)
         if (stopped) return
-        setSessions(result.sessions)
+        // Identical catalogs must not re-render the panel; most refreshes change nothing.
+        const catalog = JSON.stringify(result.sessions)
+        if (catalog !== lastCatalog) {
+          lastCatalog = catalog
+          setSessions(result.sessions)
+        }
         setRefreshError(result.warning)
         setIssues(result.issues)
       } catch (cause) {
