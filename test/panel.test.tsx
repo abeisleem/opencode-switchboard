@@ -62,7 +62,7 @@ test("long titles clip to the available width instead of wrapping or overrunning
   }
 })
 
-test("running sessions animate through the paint-only spinner element", async () => {
+test("running sessions animate their indicator", async () => {
   const app = await testRender(() => <Demo />, { width: 60, height: 30 })
   try {
     await app.renderOnce()

@@ -13,7 +13,6 @@ import {
   type State,
 } from "./model"
 import { reconcileSelection, rowKey, type SelectionMemory } from "./selection"
-import "./spinner"
 
 /** Mirrors the native tab rail and session list: muted rows, a colored current title, a filled highlight row. */
 export type Palette = {
@@ -92,8 +91,7 @@ function FadeText(props: { text: string; fg: string | RGBA; background: string |
   )
 }
 
-/** Sentinel indicator: rendered by the paint-only spinner element, never as text. */
-const SPINNING = "spinner"
+const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 export type PanelProps = {
   state: State
   sessions: Session[]
@@ -270,11 +268,21 @@ export function InboxPanel(props: PanelProps) {
   const sameKeys = (a: string[], b: string[]) => a.length === b.length && a.every((key, i) => key === b[i])
   const keys = createMemo(() => items().map(rowKey), [], { equals: sameKeys })
   const entries = createMemo(() => new Map(items().map((row, index) => [rowKey(row), { row, index }])))
+  // Animate only for running rows on screen, not every running session the catalog knows.
+  const animating = createMemo(() =>
+    items().some((row) => row.kind === "session" && (row.session.running || row.session.status === "Queued")),
+  )
+  const [frame, setFrame] = createSignal(0)
+  createEffect(() => {
+    if (!animating()) return
+    const timer = setInterval(() => setFrame((value) => (value + 1) % SPINNER.length), 80)
+    onCleanup(() => clearInterval(timer))
+  })
   /** The native rail's left indicator: approval, question, activity, error, or unread. */
   function indicator(session: Session): [string, string | RGBA] {
     if (session.status === "Approval") return ["!", props.colors.attention]
     if (session.status === "Question") return ["?", props.colors.attention]
-    if (session.running || session.status === "Queued") return [SPINNING, props.colors.running]
+    if (session.running || session.status === "Queued") return [SPINNER[frame()]!, props.colors.running]
     if (session.status === "Error") return ["×", props.colors.error]
     if (unread(session, props.state)) return ["•", props.colors.unread]
     if (session.attention) return ["~", props.colors.muted]
@@ -372,25 +380,14 @@ export function InboxPanel(props: PanelProps) {
                     ) : (
                       <>
                         <box flexDirection="row" height={1}>
-                          <box width={3 + indent()} flexShrink={0} flexDirection="row">
-                            <box width={2} flexShrink={0} flexDirection="row" justifyContent="flex-end">
-                              <Show
-                                when={indicator(session())[0] === SPINNING}
-                                fallback={
-                                  <text
-                                    fg={lit() ? props.colors.highlightText : indicator(session())[1]}
-                                    wrapMode="none"
-                                  >
-                                    {indicator(session())[0]}
-                                  </text>
-                                }
-                              >
-                                <inbox_spinner
-                                  color={lit() ? props.colors.highlightText : props.colors.running}
-                                />
-                              </Show>
-                            </box>
-                          </box>
+                          <text
+                            width={3 + indent()}
+                            flexShrink={0}
+                            fg={lit() ? props.colors.highlightText : indicator(session())[1]}
+                            wrapMode="none"
+                          >
+                            {`${indicator(session())[0].padStart(2)} ${" ".repeat(indent())}`}
+                          </text>
                           <FadeText text={session().title} fg={fg()} background={background()} bold={lit()} />
                           {close(() => props.act({ type: "session-remove", sessionID: session().id }))}
                         </box>
