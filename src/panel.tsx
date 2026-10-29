@@ -1,0 +1,422 @@
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
+import { RGBA, TextAttributes, type BoxRenderable, type ScrollBoxRenderable } from "@opentui/core"
+import { useRenderer } from "@opentui/solid"
+import {
+  rowDetail,
+  rows,
+  section,
+  unread,
+  type Action,
+  type Placement,
+  type Row,
+  type Session,
+  type State,
+} from "./model"
+import { reconcileSelection, rowKey, type SelectionMemory } from "./selection"
+
+/** Mirrors the native tab rail and session list: muted rows, a colored current title, a filled highlight row. */
+export type Palette = {
+  text: string | RGBA
+  muted: string | RGBA
+  /** Secondary line (worktree), dimmer than muted titles. */
+  detail: string | RGBA
+  /** The panel surface, which overflowing titles fade into. */
+  background: string | RGBA
+  /** The conversation being viewed. */
+  current: string | RGBA
+  /** The keyboard cursor or mouse-hovered row: filled background, bold contrasting text. */
+  highlight: string | RGBA
+  highlightText: string | RGBA
+  unread: string | RGBA
+  attention: string | RGBA
+  running: string | RGBA
+  error: string | RGBA
+}
+
+const rgba = (color: string | RGBA) => (typeof color === "string" ? RGBA.fromHex(color) : color)
+
+/** Same blend as the native rail's `tint`. */
+export function tint(base: RGBA, overlay: RGBA, alpha: number) {
+  const mix = (a: number, b: number) => Math.round((a + (b - a) * alpha) * 255)
+  return RGBA.fromInts(mix(base.r, overlay.r), mix(base.g, overlay.g), mix(base.b, overlay.b))
+}
+
+const FADE_WIDTH = 4
+const cellWidth = (value: string) => (typeof Bun === "undefined" ? value.length : Bun.stringWidth(value))
+
+/** One line clipped to its measured width; when it overflows, the last cells fade into the background as in the native rail. */
+function FadeText(props: { text: string; fg: string | RGBA; background: string | RGBA; bold?: boolean }) {
+  let box: BoxRenderable | undefined
+  const [width, setWidth] = createSignal(0)
+  const visible = createMemo(() => {
+    const result: string[] = []
+    let used = 0
+    for (const part of Array.from(props.text)) {
+      used += cellWidth(part)
+      if (used > width()) return { parts: result, overflows: true }
+      result.push(part)
+    }
+    return { parts: result, overflows: false }
+  })
+  const color = (index: number) => {
+    const length = visible().parts.length
+    const end = index - (length - FADE_WIDTH) + 1
+    if (end <= 0) return props.fg
+    return tint(rgba(props.fg), rgba(props.background), 0.2 + 0.72 * ((end - 1) / (FADE_WIDTH - 1)))
+  }
+  return (
+    <box
+      ref={box}
+      flexGrow={1}
+      flexBasis={0}
+      minWidth={0}
+      height={1}
+      overflow="hidden"
+      onSizeChange={() => setWidth(box?.width ?? 0)}
+    >
+      <text fg={props.fg} wrapMode="none" attributes={props.bold ? TextAttributes.BOLD : undefined}>
+        <Show when={visible().overflows && width() > FADE_WIDTH} fallback={props.text}>
+          <For each={visible().parts}>
+            {(part, index) => <span style={{ fg: color(index()) }}>{part}</span>}
+          </For>
+        </Show>
+      </text>
+    </box>
+  )
+}
+
+const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+export type PanelProps = {
+  state: State
+  sessions: Session[]
+  colors: Palette
+  error: string
+  loading: boolean
+  /** Whether the panel has keyboard focus; clicks while unfocused leave focus where it is. */
+  focused: boolean
+  act: (action: Action) => void
+  open: (session: Session, keepFocus: boolean) => void
+  refresh: () => void
+  close: () => void
+  help: () => void
+  diagnostics: () => void
+  selectionMemory?: SelectionMemory
+  keys?: (actions: {
+    next: () => void
+    previous: () => void
+    enter: () => void
+    unread: () => void
+    place: (placement: Placement) => void
+    remove: () => void
+    /** Moves the cursor to a row key (see rowKey). */
+    reveal: (key: string) => void
+  }) => void
+}
+
+export function InboxPanel(props: PanelProps) {
+  const renderer = useRenderer()
+  const restored = props.selectionMemory ? { ...props.selectionMemory } : undefined
+  const owner = Symbol("inbox panel")
+  if (props.selectionMemory) props.selectionMemory.owner = owner
+  const [requested, setRequested] = createSignal<{ key: string }>()
+  const [hovered, setHovered] = createSignal<string>()
+  let scroll: ScrollBoxRenderable | undefined
+  const items = createMemo(() => rows(props.sessions, props.state))
+  const selection = createMemo<{
+    items: Row[]
+    key: string
+    index: number
+    request: { key: string } | undefined
+    pending: boolean
+  }>((previous) => {
+    const request = requested()
+    const next = items()
+    const remembered = previous ?? restored
+    const key = request && request !== previous?.request ? request.key : (remembered?.key ?? "")
+    const index = reconcileSelection(remembered?.items ?? [], next, key, remembered?.index ?? 0)
+    const id = key.startsWith("session:") ? key.slice("session:".length) : undefined
+    const pending = Boolean(
+      id &&
+        !props.sessions.some((session) => session.id === id) &&
+        (props.loading ||
+          !props.sessions.length ||
+          Object.values(props.state.projects).some(
+            (project) => project.open && project.sessions.includes(id),
+          )),
+    )
+    return {
+      items: next.length ? next : (remembered?.items ?? []),
+      key: pending ? key : next[index] ? rowKey(next[index]!) : "",
+      index,
+      request,
+      pending,
+    }
+  })
+  const cursor = () => selection().index
+  const current = () => items()[cursor()]
+  function keepVisible() {
+    if (!scroll || cursor() < 0 || selection().pending || !scroll.viewport.height) return
+    // Use the known row heights: newly reconciled renderables can still have
+    // an old/zero layout here, which would incorrectly scroll back to the top.
+    const top = items()
+      .slice(0, cursor())
+      .reduce((sum, row) => sum + (rowDetail(row) ? 3 : 2), 0)
+    const bottom = top + (rowDetail(current()!) ? 2 : 1)
+    if (top < scroll.scrollTop) scroll.scrollTo(top)
+    else if (bottom > scroll.scrollTop + scroll.viewport.height)
+      scroll.scrollTo(bottom - scroll.viewport.height)
+  }
+  let restoring = Boolean(restored && (restored.scrollTop > 0 || restored.index > 0))
+  let disposed = false
+  function restoreViewport() {
+    if (
+      disposed ||
+      !restoring ||
+      selection().pending ||
+      cursor() < 0 ||
+      !scroll?.viewport.height ||
+      !scroll.scrollHeight
+    )
+      return
+    restoring = false
+    scroll.scrollTo(restored!.scrollTop)
+    keepVisible()
+  }
+  // The content's native layout is ready after the first frame. Avoid mutating
+  // scroll state from a layout-size callback, which can re-enter the host layout.
+  function scheduleRestore() {
+    if (restoring && !selection().pending && cursor() >= 0) {
+      renderer.off("frame", restoreViewport)
+      renderer.once("frame", restoreViewport)
+    }
+  }
+  createEffect(
+    on(
+      () => `${selection().key}\n${selection().index}\n${selection().pending}`,
+      () => {
+        keepVisible()
+        scheduleRestore()
+      },
+    ),
+  )
+  onMount(scheduleRestore)
+  function remember() {
+    if (!props.selectionMemory || props.selectionMemory.owner !== owner) return
+    const selected = selection()
+    Object.assign(props.selectionMemory, {
+      items: selected.items,
+      key: selected.key,
+      index: selected.index,
+      scrollTop:
+        !selected.pending && scroll && !scroll.isDestroyed
+          ? scroll.scrollTop
+          : props.selectionMemory.scrollTop,
+    })
+  }
+  onCleanup(() => {
+    disposed = true
+    renderer.off("frame", restoreViewport)
+    remember()
+  })
+  function step(amount: number) {
+    setHovered(undefined)
+    const row = items()[Math.max(0, Math.min(items().length - 1, cursor() + amount))]
+    if (row) setRequested({ key: rowKey(row) })
+    remember()
+  }
+  function enter(keepFocus = false) {
+    const row = current()
+    // Capture intent before an action can mount another host panel.
+    remember()
+    if (row?.kind === "heading") props.act({ type: "collapse", key: row.key })
+    if (row?.kind === "session") props.open(row.session, keepFocus)
+  }
+  props.keys?.({
+    next: () => step(1),
+    previous: () => step(-1),
+    enter: () => enter(),
+    unread: () => {
+      const row = current()
+      if (row?.kind === "session")
+        props.act(
+          unread(row.session, props.state)
+            ? { type: "read", sessionID: row.session.id, observed: row.session.idle }
+            : { type: "unread", sessionID: row.session.id },
+        )
+    },
+    place: (placement) => {
+      const row = current()
+      if (row?.kind === "session" && section(row.session, props.state) !== placement)
+        props.act({ type: "place", sessionID: row.session.id, placement })
+    },
+    reveal: (key) => {
+      setRequested({ key })
+      remember()
+    },
+    remove: () => {
+      const row = current()
+      if (row?.kind === "heading" && row.depth === 0) props.act({ type: "project-close", project: row.key })
+      if (row?.kind === "session") props.act({ type: "session-remove", sessionID: row.session.id })
+    },
+  })
+  const animating = createMemo(() =>
+    props.sessions.some((session) => session.running || session.status === "Queued"),
+  )
+  const [frame, setFrame] = createSignal(0)
+  createEffect(() => {
+    if (!animating()) return
+    const timer = setInterval(() => setFrame((value) => (value + 1) % SPINNER.length), 80)
+    onCleanup(() => clearInterval(timer))
+  })
+  /** The native rail's left indicator: approval, question, activity, error, or unread. */
+  function indicator(session: Session): [string, string | RGBA] {
+    if (session.status === "Approval") return ["!", props.colors.attention]
+    if (session.status === "Question") return ["?", props.colors.attention]
+    if (session.running || session.status === "Queued") return [SPINNER[frame()]!, props.colors.running]
+    if (session.status === "Error") return ["×", props.colors.error]
+    if (unread(session, props.state)) return ["•", props.colors.unread]
+    if (session.attention) return ["~", props.colors.muted]
+    return ["", props.colors.muted]
+  }
+  return (
+    <box flexDirection="column" flexGrow={1} minHeight={0} paddingRight={1}>
+      <scrollbox ref={scroll} flexGrow={1} minHeight={0}>
+        <Show
+          when={items().length}
+          fallback={
+            <text fg={props.colors.muted} paddingLeft={3}>
+              {props.loading ? "Loading…" : "No open projects. Open one with Ctrl+O."}
+            </text>
+          }
+        >
+          <box flexDirection="column" gap={1}>
+            <For each={items()}>
+              {(row, index) => {
+                const key = rowKey(row)
+                const lit = () => hovered() === key || (props.focused && cursor() === index())
+                const background = () => (lit() ? props.colors.highlight : props.colors.background)
+                const hover = () => {
+                  setHovered(key)
+                  // As in native lists, pointing at a row in the focused panel moves the cursor there.
+                  if (props.focused && selection().key !== key) setRequested({ key })
+                }
+                /** A fixed-width close target: always laid out, so hovering it neither shifts nor unhovers the row. */
+                const close = (run: () => void) => (
+                  <text
+                    width={2}
+                    flexShrink={0}
+                    fg={props.colors.highlightText}
+                    onMouseMove={hover}
+                    onMouseOver={hover}
+                    onMouseDown={(event) => {
+                      event.stopPropagation()
+                      if (lit()) run()
+                    }}
+                  >
+                    {lit() ? " ✕" : "  "}
+                  </text>
+                )
+                return (
+                  <box
+                    flexDirection="column"
+                    height={rowDetail(row) ? 2 : 1}
+                    backgroundColor={lit() ? props.colors.highlight : undefined}
+                    onMouseMove={hover}
+                    onMouseOver={hover}
+                    onMouseOut={() => {
+                      if (hovered() === key) setHovered(undefined)
+                    }}
+                    onMouseDown={(event) => {
+                      // The host focuses the panel on mouse down; an unfocused click acts without stealing focus.
+                      const keepFocus = !props.focused
+                      if (keepFocus) event.stopPropagation()
+                      setRequested({ key })
+                      enter(keepFocus)
+                    }}
+                  >
+                    {row.kind === "heading" ? (
+                      <box flexDirection="row" height={1} paddingLeft={1 + row.depth * 2}>
+                        <FadeText
+                          text={`${row.closed ? "▸" : "▾"} ${row.title}`}
+                          fg={lit() ? props.colors.highlightText : props.colors.muted}
+                          background={background()}
+                          bold={lit()}
+                        />
+                        <Show when={row.badges}>
+                          <text fg={lit() ? props.colors.highlightText : props.colors.muted}>
+                            {row.badges}
+                          </text>
+                        </Show>
+                        {row.depth === 0
+                          ? close(() => props.act({ type: "project-close", project: row.key }))
+                          : null}
+                      </box>
+                    ) : (
+                      (() => {
+                        const current = () => props.state.selected === row.session.id
+                        const indent = (row.depth - 1) * 2
+                        const fg = () =>
+                          lit()
+                            ? props.colors.highlightText
+                            : current()
+                              ? props.colors.current
+                              : props.colors.muted
+                        return (
+                          <>
+                            <box flexDirection="row" height={1}>
+                              <text
+                                width={3 + indent}
+                                flexShrink={0}
+                                fg={lit() ? props.colors.highlightText : indicator(row.session)[1]}
+                                wrapMode="none"
+                              >
+                                {`${indicator(row.session)[0].padStart(2)} ${" ".repeat(indent)}`}
+                              </text>
+                              <FadeText
+                                text={row.session.title}
+                                fg={fg()}
+                                background={background()}
+                                bold={lit()}
+                              />
+                              {close(() => props.act({ type: "session-remove", sessionID: row.session.id }))}
+                            </box>
+                            <Show when={rowDetail(row)}>
+                              {(detail) => (
+                                <box flexDirection="row" height={1} paddingLeft={3 + indent} paddingRight={2}>
+                                  <FadeText
+                                    text={detail()}
+                                    fg={lit() ? props.colors.highlightText : props.colors.detail}
+                                    background={background()}
+                                  />
+                                </box>
+                              )}
+                            </Show>
+                          </>
+                        )
+                      })()
+                    )}
+                  </box>
+                )
+              }}
+            </For>
+          </box>
+        </Show>
+      </scrollbox>
+      <box height={1} flexShrink={0} flexDirection="row" paddingLeft={1}>
+        <text
+          flexGrow={1}
+          minWidth={0}
+          wrapMode="none"
+          fg={props.colors.error}
+          onMouseDown={props.diagnostics}
+        >
+          {props.error ? `! ${props.error}` : ""}
+        </text>
+        <text onMouseDown={props.help}>
+          <span style={{ fg: props.colors.muted }}>?</span>
+          <span style={{ fg: props.colors.text }}> help</span>
+        </text>
+      </box>
+    </box>
+  )
+}
