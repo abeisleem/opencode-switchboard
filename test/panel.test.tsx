@@ -56,9 +56,9 @@ test("long titles clip to the available width instead of wrapping or overrunning
     await app.renderOnce()
     await app.renderOnce()
     const screen = app.captureCharFrame()
-    // 26 columns - 1 right padding - 3 indicator - 3 close (gap, ✕, blank) = 19 title cells.
-    expect(screen).toContain("Review provider con")
-    expect(screen).not.toContain("Review provider conf")
+    // 26 columns - 1 right padding - 3 indicator - 2 close (gap, ✕) = 20 title cells.
+    expect(screen).toContain("Review provider conf")
+    expect(screen).not.toContain("Review provider confi")
   } finally {
     await app.dispose()
   }
@@ -106,7 +106,7 @@ test("the cursor and hovered rows get the theme's muted hover fill, keeping stat
     expect(cell(app, 1, y)).toMatchObject({ char: "•", fg: palette.unread })
     expect(cell(app, 3, y)).toMatchObject({ char: "R", fg: palette.text, bold: false })
     // The overflowing title fades into the hover fill, not the panel background.
-    expect(cell(app, 21, y).fg).toBe(
+    expect(cell(app, 22, y).fg).toBe(
       rgbToHex(tint(RGBA.fromHex(palette.text), RGBA.fromHex(palette.hover), 0.92)),
     )
     // Hovering moved the cursor too, so the heading is no longer lit.
@@ -123,7 +123,7 @@ test("the cursor and hovered rows get the theme's muted hover fill, keeping stat
   }
 })
 
-test("the close ✕ has a blank column on each side, and the title stops before it", async () => {
+test("the close ✕ has a gap before it and the panel padding after it, and the title stops before it", async () => {
   const app = await testRender(() => <Demo />, { width: 26, height: 30 })
   try {
     await app.renderOnce()
@@ -132,8 +132,8 @@ test("the close ✕ has a blank column on each side, and the title stops before 
     await app.mockMouse.moveTo(8, y)
     await app.renderOnce()
     const line = app.captureCharFrame().split("\n")[y]!
-    // Title, gap, ✕, blank, then the panel's right padding.
-    expect(line).toBe(" • Review provider con ✕  ")
+    // Title, gap, ✕, then the panel's right padding.
+    expect(line).toBe(" • Review provider conf ✕ ")
     const x = line.indexOf("✕")
     expect(cell(app, x, y).fg).toBe(palette.muted)
     // Pointing at the ✕ brightens it and keeps the row hovered.
@@ -146,8 +146,8 @@ test("the close ✕ has a blank column on each side, and the title stops before 
     await app.renderOnce()
     expect(cell(app, 3, y).bold).toBe(true)
     expect(app.captureCharFrame()).toContain("Review provider")
-    // The cell after the ✕ is part of the close target.
-    await app.mockMouse.click(x + 1, y)
+    // Clicking the ✕ closes the session.
+    await app.mockMouse.click(x, y)
     await app.renderOnce()
     expect(app.captureCharFrame()).not.toContain("Review provider")
   } finally {
