@@ -30,7 +30,7 @@ the panel is open focuses the panel on the current conversation.
 - **Projects → sessions.** Active sessions sit under their project; **Later** is one
   fold after them. Agent activity never reorders your list.
 - **Indicators** (left column): `!` approval, `?` question, spinner running,
-  `×` error, `•` unread. The conversation you are viewing has a colored title.
+  `×` error, `•` unread. The conversation you are viewing has a bold title.
 - **Adding work:** pick a project or session in OpenCode's **Ctrl+O** menu. A new
   project starts empty; a saved one comes back with its sessions. Opening any
   session adds it to its project.

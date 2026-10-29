@@ -2,12 +2,13 @@ import { Plugin } from "@opencode/plugin/tui"
 import { appendFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createEffect, createSignal, ErrorBoundary, on, onCleanup, onMount, Show } from "solid-js"
+import type { RGBA } from "@opentui/core"
+import { createEffect, createMemo, createSignal, ErrorBoundary, on, onCleanup, onMount, Show } from "solid-js"
 import { Inbox } from "./rpc"
 import { initialState, laterKey, projectOf, type Action, type Session, type State } from "./model"
 import { loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
-import { InboxPanel, tint, type PanelProps } from "./panel"
+import { InboxPanel, tint, type Palette, type PanelProps } from "./panel"
 import { createSelectionMemory, followRoute } from "./selection"
 
 /** The host's plugin boundary only toasts render crashes; keep the stack for diagnosis. */
@@ -246,6 +247,25 @@ export default Plugin.define({
       // Side panels sit on the raised surface; fullscreen uses the base background.
       const background = () =>
         surface() === "panel" ? ctx.theme.background.raised.base : ctx.theme.background.base
+      // Built once per theme or surface change: rows read the palette on every update.
+      const colors = createMemo((): Palette => {
+        const base = background()
+        // The native rail's row fills, flattened onto the surface (as its `pulseBackground`) so titles fade into them.
+        // A transparent fill stays the bare surface, which is itself transparent in the system theme.
+        const flatten = (fill: RGBA) => (fill.a === 0 ? base : tint(base, fill, fill.a))
+        return {
+          text: ctx.theme.text.base,
+          muted: ctx.theme.text.muted,
+          detail: tint(ctx.theme.text.muted, base, 0.35),
+          background: base,
+          hover: flatten(ctx.theme.background.raised.high),
+          selected: flatten(ctx.theme.background.action.primary.selected),
+          unread: ctx.theme.hue.accent[200],
+          attention: ctx.theme.hue.accent[200],
+          running: ctx.theme.hue.interactive[200],
+          error: ctx.theme.text.feedback.error.base,
+        }
+      })
       return (
         <ErrorBoundary
           fallback={(cause, reset) => {
@@ -264,19 +284,7 @@ export default Plugin.define({
             error={error() || refreshError()}
             loading={loading()}
             focused={focused()}
-            colors={{
-              text: ctx.theme.text.base,
-              muted: ctx.theme.text.muted,
-              detail: tint(ctx.theme.text.muted, background(), 0.35),
-              background: background(),
-              current: ctx.theme.text.formfield.selected,
-              highlight: ctx.theme.background.action.primary.focused,
-              highlightText: ctx.theme.text.action.primary.focused,
-              unread: ctx.theme.hue.accent[200],
-              attention: ctx.theme.hue.accent[200],
-              running: ctx.theme.hue.interactive[200],
-              error: ctx.theme.text.feedback.error.base,
-            }}
+            colors={colors()}
             act={(action) => void act(action)}
             open={(session, keepFocus) => {
               keepConversationFocus = keepFocus

@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js"
 import { useKeyboard, useRenderer } from "@opentui/solid"
-import { InboxPanel, type PanelProps } from "./panel"
+import { InboxPanel, type Palette, type PanelProps } from "./panel"
 import { initialState, reduce, type Session } from "./model"
 
 export function demoSessions(): Session[] {
@@ -26,6 +26,19 @@ export function demoSessions(): Session[] {
     running: status === "Running",
   }))
 }
+
+export const DEMO_PALETTE = {
+  text: "#c0caf5",
+  muted: "#737aa2",
+  detail: "#545c7e",
+  background: "#1f2335",
+  hover: "#292e42",
+  selected: "#1f2335",
+  unread: "#ff9e64",
+  attention: "#ff9e64",
+  running: "#7aa2f7",
+  error: "#f7768e",
+} satisfies Palette
 
 export function Demo() {
   const renderer = useRenderer()
@@ -66,19 +79,7 @@ export function Demo() {
         error=""
         loading={false}
         focused
-        colors={{
-          text: "#c0caf5",
-          muted: "#737aa2",
-          detail: "#545c7e",
-          background: "#1f2335",
-          current: "#7aa2f7",
-          highlight: "#7aa2f7",
-          highlightText: "#1a1b26",
-          unread: "#ff9e64",
-          attention: "#ff9e64",
-          running: "#7aa2f7",
-          error: "#f7768e",
-        }}
+        colors={DEMO_PALETTE}
         act={(action) => setState(reduce(state(), action))}
         open={(session) =>
           setState(

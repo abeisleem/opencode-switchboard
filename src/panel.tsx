@@ -14,19 +14,20 @@ import {
 } from "./model"
 import { reconcileSelection, rowKey, type SelectionMemory } from "./selection"
 
-/** Mirrors the native tab rail and session list: muted rows, a colored current title, a filled highlight row. */
+/** Mirrors the native tab rail: muted rows, a subtly raised row under the pointer or cursor, a bold current title. */
 export type Palette = {
+  /** Titles of the hovered or cursor row and of the conversation being viewed. */
   text: string | RGBA
+  /** Resting titles and headings. */
   muted: string | RGBA
   /** Secondary line (worktree), dimmer than muted titles. */
   detail: string | RGBA
   /** The panel surface, which overflowing titles fade into. */
   background: string | RGBA
-  /** The conversation being viewed. */
-  current: string | RGBA
-  /** The keyboard cursor or mouse-hovered row: filled background, bold contrasting text. */
-  highlight: string | RGBA
-  highlightText: string | RGBA
+  /** The row under the mouse or keyboard cursor. Opaque, so titles can fade into it. */
+  hover: string | RGBA
+  /** The row of the conversation being viewed; themes often make it the same as `background`. */
+  selected: string | RGBA
   unread: string | RGBA
   attention: string | RGBA
   running: string | RGBA
@@ -309,44 +310,49 @@ export function InboxPanel(props: PanelProps) {
                   equals: (a, b) => a.index === b.index && JSON.stringify(a.row) === JSON.stringify(b.row),
                 })
                 const index = () => entry().index
-                const lit = () => hovered() === key || (props.focused && cursor() === index())
-                const background = () => (lit() ? props.colors.highlight : props.colors.background)
+                // A memo, so a cursor move only re-renders the two rows whose highlight changes.
+                const lit = createMemo(() => hovered() === key || (props.focused && cursor() === index()))
+                const current = () => key === `session:${props.state.selected}`
+                // The hover fill wins over the current row's fill so the cursor stays visible on it.
+                const fill = () =>
+                  lit() ? props.colors.hover : current() ? props.colors.selected : undefined
+                const background = () => fill() ?? props.colors.background
                 const hover = () => {
                   setHovered(key)
                   // As in native lists, pointing at a row in the focused panel moves the cursor there.
                   if (props.focused && selection().key !== key) setRequested({ key })
                 }
-                /** A fixed-width close target: always laid out, so hovering it neither shifts nor unhovers the row. */
+                const [closeHovered, setCloseHovered] = createSignal(false)
+                /**
+                 * A fixed-width close target (the `✕` and the cell after it), always laid out so hovering it
+                 * neither shifts nor unhovers the row. The blank cell before it belongs to the row, so the
+                 * title stops short of the `✕` and clicking past a title's end opens the row.
+                 */
                 const close = (run: () => void) => (
                   <text
+                    marginLeft={1}
                     width={2}
                     flexShrink={0}
-                    fg={props.colors.highlightText}
-                    onMouseMove={hover}
-                    onMouseOver={hover}
+                    fg={closeHovered() ? props.colors.text : props.colors.muted}
+                    onMouseOver={() => setCloseHovered(true)}
+                    onMouseOut={() => setCloseHovered(false)}
                     onMouseDown={(event) => {
                       event.stopPropagation()
                       if (lit()) run()
                     }}
                   >
-                    {lit() ? " ✕" : "  "}
+                    {lit() ? "✕" : ""}
                   </text>
                 )
                 const heading = () => entry().row as Extract<Row, { kind: "heading" }>
                 const item = () => entry().row as Extract<Row, { kind: "session" }>
                 const session = () => item().session
                 const indent = () => (item().depth - 1) * 2
-                const fg = () =>
-                  lit()
-                    ? props.colors.highlightText
-                    : props.state.selected === session().id
-                      ? props.colors.current
-                      : props.colors.muted
                 return (
                   <box
                     flexDirection="column"
                     height={rowDetail(entry().row) ? 2 : 1}
-                    backgroundColor={lit() ? props.colors.highlight : undefined}
+                    backgroundColor={fill()}
                     onMouseMove={hover}
                     onMouseOver={hover}
                     onMouseOut={() => {
@@ -364,14 +370,11 @@ export function InboxPanel(props: PanelProps) {
                       <box flexDirection="row" height={1} paddingLeft={1 + heading().depth * 2}>
                         <FadeText
                           text={`${heading().closed ? "▸" : "▾"} ${heading().title}`}
-                          fg={lit() ? props.colors.highlightText : props.colors.muted}
+                          fg={lit() ? props.colors.text : props.colors.muted}
                           background={background()}
-                          bold={lit()}
                         />
                         <Show when={heading().badges}>
-                          <text fg={lit() ? props.colors.highlightText : props.colors.muted}>
-                            {heading().badges}
-                          </text>
+                          <text fg={lit() ? props.colors.text : props.colors.muted}>{heading().badges}</text>
                         </Show>
                         {heading().depth === 0
                           ? close(() => props.act({ type: "project-close", project: heading().key }))
@@ -380,25 +383,29 @@ export function InboxPanel(props: PanelProps) {
                     ) : (
                       <>
                         <box flexDirection="row" height={1}>
+                          {/* Indicators keep their status colors on the hover fill. */}
                           <text
                             width={3 + indent()}
                             flexShrink={0}
-                            fg={lit() ? props.colors.highlightText : indicator(session())[1]}
+                            fg={indicator(session())[1]}
                             wrapMode="none"
                           >
                             {`${indicator(session())[0].padStart(2)} ${" ".repeat(indent())}`}
                           </text>
-                          <FadeText text={session().title} fg={fg()} background={background()} bold={lit()} />
+                          {/* As in the native rail: bright when hovered or current, bold only when current. */}
+                          <FadeText
+                            text={session().title}
+                            fg={lit() || current() ? props.colors.text : props.colors.muted}
+                            background={background()}
+                            bold={current()}
+                          />
                           {close(() => props.act({ type: "session-remove", sessionID: session().id }))}
                         </box>
                         <Show when={rowDetail(item())}>
                           {(detail) => (
-                            <box flexDirection="row" height={1} paddingLeft={3 + indent()} paddingRight={2}>
-                              <FadeText
-                                text={detail()}
-                                fg={lit() ? props.colors.highlightText : props.colors.detail}
-                                background={background()}
-                              />
+                            // Ends where the title does, before the close target and its gap.
+                            <box flexDirection="row" height={1} paddingLeft={3 + indent()} paddingRight={3}>
+                              <FadeText text={detail()} fg={props.colors.detail} background={background()} />
                             </box>
                           )}
                         </Show>
