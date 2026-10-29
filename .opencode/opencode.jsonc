@@ -1,4 +1,4 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["../"]
+  // The plugin loads from source via .opencode/plugins/switchboard/.
 }

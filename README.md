@@ -73,15 +73,19 @@ bun run demo          # fixture panel, no server needed
 ```
 
 Running `opencode` in this directory loads the plugin from source through
-`.opencode/opencode.jsonc`. The server part reloads on edit; a running TUI does not
-re-import the TUI part when only its source changes, so restart the TUI to test
-panel changes.
+`.opencode/plugins/switchboard/`. The server part reloads on edit; a running TUI
+does not re-import the TUI part when only its source changes, so restart the TUI to
+test panel changes.
+
+The published package exports a Solid-compiled `dist/tui.js` (`bun run build`, also
+run on pack), because OpenCode does not compile `.tsx` files inside `node_modules`.
 
 Slower checks, run before releases:
 
 ```sh
 bun test test/integration.test.ts   # private OpenCode server
 bun run smoke && bun run smoke:client   # real TUI in a PTY
+bun run smoke:package                   # packed tarball installed from npm, in a real TUI
 bun run pack:dry-run
 ```
 

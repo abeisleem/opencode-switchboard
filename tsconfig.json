@@ -11,5 +11,5 @@
     "allowImportingTsExtensions": true,
     "types": ["bun"]
   },
-  "include": ["src", "test", "bench", "demo.tsx", "scripts/build-client.ts"]
+  "include": ["src", "test", "bench", "demo.tsx", "scripts/build-client.ts", "scripts/build.ts", ".opencode/plugins"]
 }

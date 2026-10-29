@@ -18,6 +18,9 @@
   and provided by the host at runtime, as are `effect`, `solid-js`, and
   `@opentui/*` (peer dependencies). Never bundle them. Other runtime dependencies
   (Zod) are regular `dependencies` installed with the package.
+- The TUI part ships as `dist/tui.js` (`scripts/build.ts`, run on pack): the host
+  does not Solid-compile `.tsx` inside `node_modules`. Development loads source via
+  `.opencode/plugins/switchboard/`. The server and RPC parts ship as TS source.
 - Persisted state is versioned (`stateSchema.version`). Any shape change needs a
   migration in `src/migrate.ts` plus a test; never reset user organization.
 
@@ -27,8 +30,8 @@
   https://opencode.ai/v2/docs/build/plugins/effect#publish.
 - Before publishing: typecheck, fast tests, then ask the user to approve the
   integration test and smoke runs; `bun run pack:dry-run` and check the file list
-  (no tests, fixtures, artifacts, or design notes). Test the packed tarball in a
-  clean OpenCode config, not only this checkout.
+  (no tests, fixtures, artifacts, or design notes). Run `bun run smoke:package`,
+  which installs the packed tarball from npm into a clean OpenCode config.
 - Bump the version for any user-visible change. Publishing is outward-facing:
   confirm with the user before `npm publish` or pushing release tags.
 - Planned: Changesets + npm trusted publishing from GitHub Actions, following

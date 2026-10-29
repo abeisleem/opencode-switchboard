@@ -5,11 +5,13 @@ import { execFileSync } from "node:child_process"
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-const plugin = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "")
+const repo = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "")
+// SWITCHBOARD_PLUGIN points the run at an installed copy (see smoke-package.mjs).
+const plugin = process.env.SWITCHBOARD_PLUGIN ?? repo
 const root = await mkdtemp("/tmp/opencode/switchboard-pty-")
 const directory = `${root}/project`
 await mkdir(`${directory}/.opencode`, { recursive: true })
-await mkdir(`${plugin}/artifacts`, { recursive: true })
+await mkdir(`${repo}/artifacts`, { recursive: true })
 const bundled = process.argv.includes("bundled")
 const autoOpen = process.argv.includes("auto")
 const scoped = process.argv.includes("scoped")
@@ -18,7 +20,7 @@ const activation = process.argv.includes("activate")
 let clientPlugin = plugin
 if (bundled) {
   clientPlugin = `${root}/workstation-client`
-  await cp(`${plugin}/artifacts/client`, clientPlugin, { recursive: true })
+  await cp(`${repo}/artifacts/client`, clientPlugin, { recursive: true })
   // The backend deliberately has NO TUI export. The test cannot accidentally
   // succeed by loading the server's TypeScript sources instead of the client build.
   await writeFile(
@@ -31,7 +33,7 @@ if (bundled) {
   )
   await writeFile(
     `${directory}/server.ts`,
-    `export { default } from ${JSON.stringify(pathToFileURL(`${plugin}/src/server.ts`).href)}\n`,
+    `export { default } from ${JSON.stringify(pathToFileURL(`${repo}/src/server.ts`).href)}\n`,
   )
   await writeFile(`${directory}/.opencode/opencode.json`, JSON.stringify({ plugins: ["../"] }))
 } else {
@@ -170,7 +172,7 @@ try {
   }
   const frame = screen()
   await writeFile(
-    `${plugin}/artifacts/opencode-${bundled ? "bundled-" : ""}${session ? "panel" : "home"}-smoke.txt`,
+    `${repo}/artifacts/opencode-${bundled ? "bundled-" : ""}${session ? "panel" : "home"}-smoke.txt`,
     frame,
   )
   console.log(

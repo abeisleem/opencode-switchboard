@@ -6,12 +6,13 @@
   "type": "module",
   "exports": {
     ".": "./src/server.ts",
-    "./tui": "./src/tui.tsx",
+    "./tui": "./dist/tui.js",
     "./rpc": "./src/rpc.ts"
   },
   "files": [
     "src",
     "!src/demo.tsx",
+    "dist",
     "README.md",
     "LICENSE"
   ],
@@ -20,12 +21,15 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write src test scripts demo.tsx",
     "demo": "bun --preload @opentui/solid/preload demo.tsx",
-    "smoke": "node scripts/smoke.mjs && node scripts/smoke.mjs session",
+    "smoke": "bun run build && node scripts/smoke.mjs && node scripts/smoke.mjs session",
     "build:client": "bun scripts/build-client.ts",
     "smoke:client": "bun run build:client && node scripts/smoke.mjs bundled && node scripts/smoke.mjs bundled session auto && node scripts/smoke.mjs bundled session activate",
     "pack:dry-run": "bun pm pack --dry-run",
     "prepublishOnly": "bun run typecheck && bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts",
-    "bench": "bun test ./bench/panel.bench.tsx"
+    "bench": "bun test ./bench/panel.bench.tsx",
+    "smoke:package": "node scripts/smoke-package.mjs",
+    "build": "bun scripts/build.ts",
+    "prepack": "bun run build"
   },
   "keywords": [
     "opencode",
@@ -68,5 +72,16 @@
     "prettier": "3.6.2",
     "solid-js": "1.9.15",
     "typescript": "5.9.3"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
   }
 }
