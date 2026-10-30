@@ -396,7 +396,7 @@ export function InboxPanel(props: PanelProps) {
                   <text
                     selectable={false}
                     marginLeft={1}
-                    width={1}
+                    width={2}
                     flexShrink={0}
                     fg={closeHovered() ? props.colors.text : props.colors.muted}
                     onMouseOver={() => setCloseHovered(true)}
@@ -481,7 +481,7 @@ export function InboxPanel(props: PanelProps) {
                         <Show when={rowDetail(item())}>
                           {(detail) => (
                             // Ends where the title does, before the close target and its gap.
-                            <box flexDirection="row" height={1} paddingLeft={3 + indent()} paddingRight={2}>
+                            <box flexDirection="row" height={1} paddingLeft={3 + indent()} paddingRight={3}>
                               <FadeText text={detail()} fg={props.colors.detail} background={background()} />
                             </box>
                           )}

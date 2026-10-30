@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 (2026-10-30)
+
+- Collapsed project and Later headings use a vertically balanced running indicator.
+- Row close controls have a highlighted space after the ×, keeping the button clear of the highlight edge.
+
 ## 0.1.2 (2026-10-30)
 
 - Renaming a session from OpenCode's session list refreshes its title in the panel immediately, without waiting

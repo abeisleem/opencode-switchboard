@@ -52,6 +52,21 @@ test("a project containing only Active sessions has no redundant subgroup", () =
   expect(result[1]).toMatchObject({ kind: "session", depth: 1 })
 })
 
+test("collapsed headings use the centered running badge alongside attention and unread counts", () => {
+  const sessions = [
+    { ...session, id: "a", running: true, status: "Running" as const, idle: 0 },
+    { ...session, status: "Question" as const },
+  ]
+  let state = reduce(openState(), { type: "collapse", key: "p" })
+  expect(rows(sessions, state)[0]).toMatchObject({ badges: "? 1  ⠶ 1  • 1" })
+  state = reduce(state, { type: "collapse", key: "p" })
+  expect(rows(sessions, state)[0]).toMatchObject({ badges: "" })
+  for (const item of sessions)
+    state = reduce(state, { type: "place", sessionID: item.id, placement: "later" })
+  state = reduce(state, { type: "collapse", key: laterKey("p") })
+  expect(rows(sessions, state)[1]).toMatchObject({ title: "Later (2)", badges: "? 1  ⠶ 1  • 1" })
+})
+
 test("invalid persisted state fails visibly rather than resetting user organization", async () => {
   const store = createInboxStore({
     get: async () => ({ version: 99 }),

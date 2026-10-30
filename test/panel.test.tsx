@@ -62,9 +62,9 @@ test("long titles clip to the available width instead of wrapping or overrunning
     await app.renderOnce()
     await app.renderOnce()
     const screen = app.captureCharFrame()
-    // 26 columns - 1 right padding - 3 indicator - 2 close (gap, ✕) = 20 title cells.
-    expect(screen).toContain("Review provider conf")
-    expect(screen).not.toContain("Review provider confi")
+    // 26 columns - 1 panel padding - 3 indicator - 3 close (gap, ✕, padding) = 19 title cells.
+    expect(screen).toContain("Review provider con")
+    expect(screen).not.toContain("Review provider conf")
   } finally {
     await app.dispose()
   }
@@ -112,7 +112,7 @@ test("the cursor and hovered rows get the theme's muted hover fill, keeping stat
     expect(cell(app, 1, y)).toMatchObject({ char: "•", fg: palette.unread })
     expect(cell(app, 3, y)).toMatchObject({ char: "R", fg: palette.text, bold: false })
     // The overflowing title fades into the hover fill, not the panel background.
-    expect(cell(app, 22, y).fg).toBe(
+    expect(cell(app, 21, y).fg).toBe(
       rgbToHex(tint(RGBA.fromHex(palette.text), RGBA.fromHex(palette.hover), 0.92)),
     )
     // Hovering moved the cursor too, so the heading is no longer lit.
@@ -139,7 +139,7 @@ test("the cursor and hovered rows get the theme's muted hover fill, keeping stat
   }
 })
 
-test("the close ✕ has a gap before it and the panel padding after it, and the title stops before it", async () => {
+test("the close ✕ has a gap before it and highlighted target padding after it", async () => {
   const app = await testRender(() => <Demo />, { width: 26, height: 30 })
   try {
     await app.renderOnce()
@@ -148,15 +148,21 @@ test("the close ✕ has a gap before it and the panel padding after it, and the 
     await app.mockMouse.moveTo(8, y)
     await app.renderOnce()
     const line = app.captureCharFrame().split("\n")[y]!
-    // Title, gap, ✕, then the panel's right padding.
-    expect(line).toBe(" • Review provider conf ✕ ")
+    // Title, gap, ✕, highlighted target padding, then the panel's right padding.
+    expect(line).toBe(" • Review provider con ✕  ")
     const x = line.indexOf("✕")
     expect(cell(app, x, y).fg).toBe(palette.muted)
+    expect(cell(app, x + 1, y)).toMatchObject({ char: " ", bg: palette.hover })
+    expect(cell(app, x + 2, y).bg).not.toBe(palette.hover)
     // Pointing at the ✕ brightens it and keeps the row hovered.
     await app.mockMouse.moveTo(x, y)
     await app.renderOnce()
     expect(cell(app, x, y)).toMatchObject({ char: "✕", fg: palette.text, bg: palette.hover })
     expect(cell(app, 3, y).bg).toBe(palette.hover)
+    await app.mockMouse.moveTo(x + 1, y)
+    await app.renderOnce()
+    expect(app.captureCharFrame().split("\n")[y]).toBe(line)
+    expect(cell(app, x, y).fg).toBe(palette.text)
     // The gap before the ✕ belongs to the row: clicking it opens the session.
     await app.mockMouse.click(x - 1, y)
     await app.renderOnce()
@@ -166,6 +172,62 @@ test("the close ✕ has a gap before it and the panel padding after it, and the 
     await app.mockMouse.click(x, y)
     await app.renderOnce()
     expect(app.captureCharFrame()).not.toContain("Review provider")
+  } finally {
+    await app.dispose()
+  }
+})
+
+for (const width of [26, 46]) {
+  test(`collapsed project badges and close padding stay aligned at ${width} columns`, async () => {
+    const app = await testRender(() => <Demo />, { width, height: 30 })
+    try {
+      await app.renderOnce()
+      await app.renderOnce()
+      const x = width - 3
+      expect(cell(app, x, 1).char).toBe("✕")
+      expect(cell(app, x + 1, 1)).toMatchObject({ char: " ", bg: palette.hover })
+      await app.mockMouse.click(3, 1)
+      await app.renderOnce()
+      await app.renderOnce()
+      const line = app.captureCharFrame().split("\n")[1]!
+      expect(line).toContain("▸ api-server")
+      expect(line).toEndWith("⠶ 1  • 1 ✕  ")
+      expect(cell(app, width - 12, 1)).toMatchObject({ char: "⠶", fg: palette.text, bg: palette.hover })
+      expect(cell(app, width - 7, 1)).toMatchObject({ char: "•", fg: palette.text, bg: palette.hover })
+      // Resting, hovering the title, and hovering the padded close target keep the same layout.
+      await app.mockMouse.moveTo(3, lineOf(app, "dotfiles"))
+      await app.renderOnce()
+      expect(cell(app, width - 12, 1)).toMatchObject({ char: "⠶", fg: palette.muted })
+      expect(cell(app, x, 1).char).toBe(" ")
+      await app.mockMouse.moveTo(x + 1, 1)
+      await app.renderOnce()
+      expect(app.captureCharFrame().split("\n")[1]).toBe(line)
+      expect(cell(app, x, 1)).toMatchObject({ char: "✕", fg: palette.text, bg: palette.hover })
+      expect(cell(app, x + 1, 1)).toMatchObject({ char: " ", bg: palette.hover })
+      expect(cell(app, x + 2, 1).bg).not.toBe(palette.hover)
+      // The trailing highlighted cell belongs to close, not to the heading's collapse action.
+      await app.mockMouse.click(x + 1, 1)
+      await app.renderOnce()
+      expect(app.captureCharFrame()).not.toContain("api-server")
+    } finally {
+      await app.dispose()
+    }
+  })
+}
+
+test("session details end with the title before the padded close target", async () => {
+  const app = await testRender(() => <Demo />, { width: 17, height: 30 })
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    const y = lineOf(app, "Inbox pane")
+    await app.mockMouse.moveTo(3, y)
+    await app.renderOnce()
+    expect(app.captureCharFrame().split("\n")[y]).toMatch(/^ \S Inbox pane ✕  $/)
+    expect(app.captureCharFrame().split("\n")[y + 1]).toBe("   inbox-pane    ")
+    for (let x = 13; x < 16; x++) {
+      expect(cell(app, x, y + 1)).toMatchObject({ char: " ", bg: palette.selected })
+    }
   } finally {
     await app.dispose()
   }
@@ -192,12 +254,12 @@ test("a highlighted overflowing title scrolls left after a pause, then returns t
     await app.renderOnce()
     await app.renderOnce()
     const y = lineOf(app, "Review provider")
-    const title = () => app.captureCharFrame().split("\n")[y]!.slice(3, 23)
-    expect(title()).toBe("Review provider conf")
+    const title = () => app.captureCharFrame().split("\n")[y]!.slice(3, 22)
+    expect(title()).toBe("Review provider con")
     await app.mockMouse.moveTo(8, y)
     await app.renderOnce()
     // Still at rest during the initial pause.
-    expect(title()).toBe("Review provider conf")
+    expect(title()).toBe("Review provider con")
     await Bun.sleep(600 + 80 * 3 + 40)
     await app.renderOnce()
     // A few cells in (exact ticks vary): the start has scrolled away, revealing the end.
@@ -207,7 +269,7 @@ test("a highlighted overflowing title scrolls left after a pause, then returns t
     await app.mockMouse.moveTo(8, lineOf(app, "Choose navigation"))
     await app.renderOnce()
     await app.renderOnce()
-    expect(app.captureCharFrame().split("\n")[y]!.slice(3, 23)).toBe("Review provider conf")
+    expect(title()).toBe("Review provider con")
   } finally {
     await app.dispose()
   }
