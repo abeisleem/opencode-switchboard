@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test"
 import { rgbToHex, RGBA, TextAttributes } from "@opentui/core"
 import { testRender } from "@opentui/solid"
+import type { Plugin } from "@opencode/plugin/tui"
+import type { JSX } from "solid-js"
 import { DEMO_PALETTE as palette, Demo } from "../src/demo"
 import { tint } from "../src/panel"
+import { initialState } from "../src/model"
+import plugin from "../src/tui"
 
 test("panel mirrors the native rail: left indicators, no header, footer help only", async () => {
   const app = await testRender(() => <Demo />, { width: 100, height: 38 })
@@ -218,6 +222,103 @@ test("over the new-session screen no row is current", async () => {
     expect(cell(app, 3, y)).toMatchObject({ char: "I", fg: palette.muted, bold: false })
     expect(cell(app, 3, y).bg).not.toBe(palette.selected)
   } finally {
+    await app.dispose()
+  }
+})
+
+test("native session renames refresh mounted rows without waiting for the poll", async () => {
+  const state = initialState()
+  state.revision = 1
+  state.projects.work = { name: "Work", open: true, sessions: ["session"] }
+  let title = "Original title"
+  let reads = 0
+  let open!: () => Promise<void>
+  let render!: () => JSX.Element
+  let cleanup!: ReturnType<typeof plugin.setup>
+  const listeners = new Map<string, () => void>()
+  const color = RGBA.fromHex("#c0caf5")
+  const noop = () => {}
+  // Only host capabilities used by setup and the mounted fullscreen panel are needed here.
+  const context = {
+    options: {},
+    location: { directory: "/work" },
+    client: {
+      rpc: () => ({ snapshot: async () => state, events: { on: () => noop } }),
+      project: { list: async () => [{ id: "work", name: "Work", canonical: "/work" }] },
+      session: {
+        active: async () => ({}),
+        list: async () => {
+          reads++
+          return {
+            data: [{ id: "session", projectID: "work", title, location: { directory: "/work" }, time: {} }],
+            cursor: {},
+          }
+        },
+      },
+      permission: { request: { list: async () => ({ data: [] }) } },
+      form: { list: async () => ({ data: [] }) },
+    },
+    data: {
+      on: (type: string, listener: () => void) => {
+        listeners.set(type, listener)
+        return () => listeners.delete(type)
+      },
+    },
+    storage: {
+      memory: (_key: string, options: { initial: unknown }) => [options.initial, noop],
+      store: (_key: string, options: { initial: unknown }) => [options.initial, noop],
+    },
+    theme: {
+      text: { base: color, muted: color, feedback: { error: { base: color } } },
+      background: { base: color, raised: { base: color }, action: { primary: { hovered: color } } },
+      hue: { accent: { 200: color }, interactive: { 200: color } },
+      decrease: (value: RGBA) => value,
+    },
+    ui: {
+      router: {
+        current: () => ({ type: "plugin", name: "switchboard" }),
+        register: (route: { render: () => JSX.Element }) => {
+          render = route.render
+          return noop
+        },
+      },
+      slot: () => noop,
+      panel: { open: () => true, current: () => undefined },
+      tabs: { enabled: () => false },
+    },
+    keymap: {
+      layer: (factory: () => { commands: { id?: string; run: () => Promise<void> }[] }) => {
+        for (const command of factory().commands) {
+          if (command.id === "opencode-switchboard.open") open = command.run
+        }
+      },
+    },
+  } as unknown as Plugin.Context
+  const app = await testRender(
+    () => {
+      cleanup = plugin.setup(context)
+      return render()
+    },
+    { width: 60, height: 20 },
+  )
+  try {
+    listeners.get("session.renamed")?.()
+    expect(reads).toBe(0)
+    await open()
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toContain("Original title")
+
+    title = "Renamed from session list"
+    listeners.get("session.renamed")?.()
+    await app.renderOnce()
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toContain(title)
+    expect(app.captureCharFrame()).not.toContain("Original title")
+  } finally {
+    await (
+      await cleanup
+    )?.()
+    expect(listeners.has("session.renamed")).toBe(false)
     await app.dispose()
   }
 })
