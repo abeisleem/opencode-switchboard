@@ -111,13 +111,44 @@ function screen() {
       terminal.buffer.active.getLine(terminal.buffer.active.viewportY + index)?.translateToString(true) ?? "",
   ).join("\n")
 }
-async function wait(predicate) {
-  const deadline = Date.now() + 20_000
+async function wait(predicate, timeout = 20_000) {
+  const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
     if (predicate(screen())) return
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   throw new Error(screen())
+}
+/** The panel row below the tab strip that shows `title`, or -1. */
+function rowOf(title) {
+  return screen()
+    .split("\n")
+    .findLastIndex((line, index) => index > 1 && line.includes(title))
+}
+/** Whether `title`'s panel row is bold: the conversation this client shows. */
+function current(title) {
+  const y = rowOf(title)
+  if (y < 0) return false
+  const line = terminal.buffer.active.getLine(terminal.buffer.active.viewportY + y)
+  return Boolean(line?.getCell(line.translateToString(true).indexOf(title))?.isBold())
+}
+/** Opening a session hands focus to its composer: once it is current, typed text lands in the prompt. */
+async function composerFocused(title) {
+  await wait(() => current(title))
+  // Focus returns after the panel remounts; keys typed before that reach the panel, where `z`/`q` are unbound.
+  let typed = 0
+  for (;;) {
+    child.write("zq")
+    typed += 2
+    try {
+      await wait((text) => /┃\s+(zq)+/.test(text), 1_000)
+      break
+    } catch (cause) {
+      if (typed >= 20) throw cause
+    }
+  }
+  child.write("\x7f".repeat(typed))
+  await wait((text) => !/┃\s+(zq)+/.test(text))
 }
 let passed = false
 try {
@@ -146,17 +177,21 @@ try {
     child.write("\x18i")
     child.write("u")
     await wait((text) => /•\s+Another session/.test(text))
-    // Enter keeps the cursor on the session it opened.
+    // Enter opens the session under the cursor and hands focus to its composer.
     child.write("\x1b[B\r")
-    await wait((text) => text.split("\n")[0].includes("Activate target"))
+    await composerFocused("Activate target")
+    // Ctrl+X I returns to the panel, on the conversation Enter opened.
+    child.write("\x18i")
     child.write("u")
     await wait((text) => /•\s+Activate target/.test(text))
     if (terminal.modes.mouseTrackingMode === "none") throw new Error("Mouse reporting is not enabled")
-    const lines = screen().split("\n")
-    const y = lines.findLastIndex((line, index) => index > 1 && line.includes("Isolated panel smoke"))
+    const y = rowOf("Isolated panel smoke")
     if (y < 0) throw new Error("Session row not visible for mouse test")
-    const x = lines[y].indexOf("Isolated panel smoke") + 3
+    const x = screen().split("\n")[y].indexOf("Isolated panel smoke") + 3
+    // A click opens the session and hands focus to its composer too.
     child.write(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`)
+    await composerFocused("Isolated panel smoke")
+    child.write("\x18i")
     child.write("u")
     await wait((text) => /•\s+Isolated panel smoke/.test(text))
   } else if (session) {
