@@ -26,7 +26,7 @@
     "build:client": "bun scripts/build-client.ts",
     "smoke:client": "bun run build:client && node scripts/smoke.mjs bundled && node scripts/smoke.mjs bundled session auto && node scripts/smoke.mjs bundled session activate",
     "pack:dry-run": "bun pm pack --dry-run",
-    "prepublishOnly": "bun run typecheck && bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts",
+    "prepublishOnly": "bun run typecheck && bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/palette.test.ts",
     "bench": "bun test ./bench/panel.bench.tsx",
     "smoke:package": "node scripts/smoke-package.mjs",
     "build": "bun scripts/build.ts",
