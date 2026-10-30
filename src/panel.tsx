@@ -7,6 +7,7 @@ import {
   section,
   unread,
   type Action,
+  type Badge,
   type Placement,
   type Row,
   type Session,
@@ -332,9 +333,13 @@ export function InboxPanel(props: PanelProps) {
   const sameKeys = (a: string[], b: string[]) => a.length === b.length && a.every((key, i) => key === b[i])
   const keys = createMemo(() => items().map(rowKey), [], { equals: sameKeys })
   const entries = createMemo(() => new Map(items().map((row, index) => [rowKey(row), { row, index }])))
-  // Animate only for running rows on screen, not every running session the catalog knows.
+  // One clock drives session spinners and activity summarized by collapsed headings.
   const animating = createMemo(() =>
-    items().some((row) => row.kind === "session" && (row.session.running || row.session.status === "Queued")),
+    items().some((row) =>
+      row.kind === "heading"
+        ? row.badges.some((badge) => badge.kind === "running")
+        : row.session.running || row.session.status === "Queued",
+    ),
   )
   const [frame, setFrame] = createSignal(0)
   createEffect(() => {
@@ -342,11 +347,17 @@ export function InboxPanel(props: PanelProps) {
     const timer = setInterval(() => setFrame((value) => (value + 1) % SPINNER.length), 80)
     onCleanup(() => clearInterval(timer))
   })
+  const activity = () => SPINNER[frame()]!
+  function badgeSymbol(kind: Badge["kind"]) {
+    if (kind === "running") return activity()
+    if (kind === "attention") return "?"
+    return "•"
+  }
   /** The native rail's left indicator: approval, question, activity, error, or unread. */
   function indicator(session: Session): [string, string | RGBA] {
     if (session.status === "Approval") return ["!", props.colors.attention]
     if (session.status === "Question") return ["?", props.colors.attention]
-    if (session.running || session.status === "Queued") return [SPINNER[frame()]!, props.colors.running]
+    if (session.running || session.status === "Queued") return [activity(), props.colors.running]
     if (session.status === "Error") return ["×", props.colors.error]
     if (unread(session, props.state)) return ["•", props.colors.unread]
     if (session.attention) return ["~", props.colors.muted]
@@ -413,6 +424,7 @@ export function InboxPanel(props: PanelProps) {
                   </text>
                 )
                 const heading = () => entry().row as Extract<Row, { kind: "heading" }>
+                const headingColor = () => (lit() ? props.colors.text : props.colors.muted)
                 const item = () => entry().row as Extract<Row, { kind: "session" }>
                 const session = () => item().session
                 const indent = () => (item().depth - 1) * 2
@@ -435,7 +447,12 @@ export function InboxPanel(props: PanelProps) {
                     }}
                   >
                     {key.startsWith("heading:") ? (
-                      <box flexDirection="row" height={1} paddingLeft={1 + heading().depth * 2}>
+                      <box
+                        flexDirection="row"
+                        alignItems="center"
+                        height={1}
+                        paddingLeft={1 + heading().depth * 2}
+                      >
                         <text
                           selectable={false}
                           width={2}
@@ -450,10 +467,26 @@ export function InboxPanel(props: PanelProps) {
                           background={background()}
                           scroll={lit()}
                         />
-                        <Show when={heading().badges}>
-                          <text selectable={false} fg={lit() ? props.colors.text : props.colors.muted}>
-                            {heading().badges}
-                          </text>
+                        <Show when={heading().badges.length}>
+                          <box flexDirection="row" alignItems="center" height={1} flexShrink={0} gap={2}>
+                            <For each={heading().badges}>
+                              {(badge) => (
+                                <box flexDirection="row" alignItems="center" height={1} gap={1}>
+                                  <text
+                                    selectable={false}
+                                    width={1}
+                                    height={1}
+                                    fg={badge.kind === "running" ? props.colors.running : headingColor()}
+                                  >
+                                    {badgeSymbol(badge.kind)}
+                                  </text>
+                                  <text selectable={false} height={1} fg={headingColor()}>
+                                    {badge.count}
+                                  </text>
+                                </box>
+                              )}
+                            </For>
+                          </box>
                         </Show>
                         {heading().depth === 0
                           ? close(() => props.act({ type: "project-close", project: heading().key }))

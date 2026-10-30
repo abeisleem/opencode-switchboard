@@ -178,21 +178,25 @@ export function section(session: Session, state: State): Placement {
   return state.sessions[session.id]?.placement ?? "active"
 }
 
+export type Badge = { kind: "attention" | "running" | "unread"; count: number }
+
 export type Row =
-  | { kind: "heading"; key: string; title: string; closed: boolean; depth: number; badges: string }
+  | { kind: "heading"; key: string; title: string; closed: boolean; depth: number; badges: Badge[] }
   | { kind: "session"; session: Session; depth: number }
 
-export function badges(sessions: Session[], state: State) {
-  const running = sessions.filter((session) => session.running).length
+export function badges(sessions: Session[], state: State): Badge[] {
+  const running = sessions.filter((session) => session.running || session.status === "Queued").length
   const unseen = sessions.filter((session) => unread(session, state)).length
   const blocked = sessions.filter(
     (session) => session.status === "Question" || session.status === "Approval",
   ).length
-  // Static, fully lit session-spinner footprint: two columns, top three Braille rows.
-  // Its optical baseline is terminal/font-controlled; extra row height cannot shift dots within a cell.
-  return [blocked ? `? ${blocked}` : "", running ? `⠿ ${running}` : "", unseen ? `• ${unseen}` : ""]
-    .filter(Boolean)
-    .join("  ")
+  return (
+    [
+      ["attention", blocked],
+      ["running", running],
+      ["unread", unseen],
+    ] as const
+  ).flatMap(([kind, count]) => (count ? [{ kind, count }] : []))
 }
 
 export function rowDetail(row: Row) {
@@ -216,7 +220,7 @@ export function rows(sessions: Session[], state: State): Row[] {
           closed,
           title: members[0]?.projectName ?? state.projects[project]!.name,
           depth: 0,
-          badges: closed ? badges(members, state) : "",
+          badges: closed ? badges(members, state) : [],
         },
       ]
       if (closed) return result
@@ -234,7 +238,7 @@ export function rows(sessions: Session[], state: State): Row[] {
         closed: folded,
         title: folded ? `Later (${later.length})` : "Later",
         depth: 1,
-        badges: folded ? badges(later, state) : "",
+        badges: folded ? badges(later, state) : [],
       })
       if (!folded) result.push(...later.map((session): Row => ({ kind: "session", session, depth: 2 })))
       return result

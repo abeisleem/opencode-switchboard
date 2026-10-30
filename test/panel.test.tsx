@@ -323,23 +323,23 @@ for (const width of [26, 46]) {
       await app.renderOnce()
       const x = width - 2
       expect(cell(app, x, 1).char).toBe("✕")
-      expect(cell(app, x + 1, 1)).toMatchObject({ char: " ", bg: cell(app, width - 1, 1).bg })
+      expect(cell(app, x + 1, 1)).toMatchObject({ char: " ", bg: cell(app, 0, 0).bg })
       await app.mockMouse.click(3, 1)
       await app.renderOnce()
       await app.renderOnce()
       const line = app.captureCharFrame().split("\n")[1]!
       expect(line).toContain("▸ api-server")
-      expect(line).toEndWith("⠿ 1  • 1 ✕ ")
-      expect(cell(app, width - 11, 1)).toMatchObject({ char: "⠿", fg: palette.text, bg: palette.hover })
+      expect(line).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] 1  • 1 ✕ $/)
+      expect(cell(app, width - 11, 1)).toMatchObject({ fg: palette.running, bg: palette.hover })
       expect(cell(app, width - 6, 1)).toMatchObject({ char: "•", fg: palette.text, bg: palette.hover })
       // Resting, hovering the title, and hovering the padded close target keep the same layout.
       await app.mockMouse.moveTo(3, lineOf(app, "dotfiles"))
       await app.renderOnce()
-      expect(cell(app, width - 11, 1)).toMatchObject({ char: "⠿", fg: palette.muted })
+      expect(cell(app, width - 11, 1).fg).toBe(palette.running)
       expect(cell(app, x, 1).char).toBe(" ")
       await app.mockMouse.moveTo(x + 1, 1)
       await app.renderOnce()
-      expect(app.captureCharFrame().split("\n")[1]).toBe(line)
+      expect(app.captureCharFrame().split("\n")[1]!.slice(-9)).toBe(line.slice(-9))
       expect(cell(app, x, 1)).toMatchObject({ char: "✕", fg: palette.text, bg: palette.hover })
       expect(cell(app, x + 1, 1)).toMatchObject({ char: " ", bg: palette.hover })
       expect(x + 1).toBe(width - 1)
@@ -546,7 +546,7 @@ test("native session renames refresh mounted rows without waiting for the poll",
 })
 
 for (const width of [26, 46]) {
-  test(`project and Later badges stay six-dot and static in single-line headings at ${width} columns`, async () => {
+  test(`project, Later, and session spinners share frames and colors at ${width} columns`, async () => {
     const sessions = demoSessions()
     const state = initialState()
     for (const session of sessions) {
@@ -588,15 +588,11 @@ for (const width of [26, 46]) {
       expect(before[3]).toContain("▾ dotfiles")
       expect(before[12]).toContain("▸ Later (3)")
       for (const y of [1, 12]) {
-        expect(before[y]).toContain("⠿ 1  • 1")
-        // Unicode dots 1–6 fill the top three rows; dots 7–8 stay off.
-        const mark = before[y]!.match(/(\S) 1  • 1/)![1]!
-        expect(mark.codePointAt(0)! - 0x2800).toBe(0b00111111)
-        // These are cell-geometry checks, not font-raster alignment checks.
+        expect(before[y]).toContain("⠋ 1  • 1")
+        expect(cell(app, before[y]!.indexOf("⠋"), y).fg).toBe(palette.running)
         expect(before[y + 1]!.trim()).toBe("")
       }
-      // A visible running session proves the animation clock advanced, while
-      // both collapsed badges keep the same glyph, counts, and row positions.
+      // All three locations use the same animation clock and stay on one text baseline.
       expect(before[5]).toContain("⠋ Inbox panel")
       await Bun.sleep(200)
       await app.renderOnce()
@@ -604,9 +600,40 @@ for (const width of [26, 46]) {
       const after = lines()
       expect(after[5]).not.toContain("⠋ Inbox panel")
       expect(after[5]).toContain("Inbox panel")
-      for (const y of [1, 2, 3, 12, 13]) expect(after[y]).toBe(before[y])
+      const frame = after[5]!.match(/(\S) Inbox panel/)![1]!
+      for (const y of [1, 12]) {
+        expect(after[y]).toContain(`${frame} 1  • 1`)
+        expect(after[y]!.replace(frame, "⠋")).toBe(before[y])
+      }
+      for (const y of [2, 3, 13]) expect(after[y]).toBe(before[y])
     } finally {
       await app.dispose()
     }
   })
 }
+
+test("group spinners animate when every running session is hidden in a collapsed project", async () => {
+  const app = await testRender(() => <Demo />, { width: 46, height: 20 })
+  try {
+    await app.renderOnce()
+    await app.mockMouse.click(3, lineOf(app, "api-server"))
+    await app.renderOnce()
+    await app.mockMouse.click(3, lineOf(app, "dotfiles"))
+    await app.renderOnce()
+    expect(app.captureCharFrame()).not.toContain("Check service health")
+    expect(app.captureCharFrame()).not.toContain("Inbox panel")
+    const mark = () =>
+      app
+        .captureCharFrame()
+        .split("\n")[1]!
+        .match(/(\S) 1  • 1/)![1]!
+    const before = mark()
+    expect("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏").toContain(before)
+    await Bun.sleep(200)
+    await app.renderOnce()
+    await app.renderOnce()
+    expect(mark()).not.toBe(before)
+  } finally {
+    await app.dispose()
+  }
+})
