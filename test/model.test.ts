@@ -119,6 +119,47 @@ test("closing the selected project chooses an open project instead of reopening 
   expect(state.projects.p?.open).toBe(false)
 })
 
+test("closing the current session uses an open member when recent history has no survivor", () => {
+  let state = reduce(openState(), { type: "select", sessionID: "b", observed: 0 })
+  state = reduce(state, { type: "session-remove", sessionID: "b" })
+  expect(state.selected).toBe("a")
+  expect(state.recent[0]).toBe("a")
+  state = reduce(state, { type: "session-remove", sessionID: "a" })
+  expect(state.selected).toBeNull()
+})
+
+test("close fallback prefers recent open members over roster order and skips closed projects", () => {
+  let state = openState()
+  state.projects.other = { name: "Other", open: true, sessions: ["c", "d"] }
+  state.projects.closed = { name: "Closed", open: false, sessions: ["hidden"] }
+  state.recent = ["b", "hidden", "removed", "d", "a", "c"]
+  state.selected = "b"
+  state = reduce(state, { type: "session-remove", sessionID: "b" })
+  expect(state.selected).toBe("d")
+  expect(state.projects.closed?.open).toBe(false)
+  const navigation = state.navigation
+  state = reduce(state, { type: "session-remove", sessionID: "a" })
+  expect(state.selected).toBe("d")
+  expect(state.navigation).toBe(navigation)
+})
+
+test("closing a selected project falls back to an open member outside recent history", () => {
+  let state = reduce(openState(), { type: "select", sessionID: "b", observed: 0 })
+  state.projects.other = { name: "Other", open: true, sessions: ["c"] }
+  state = reduce(state, { type: "project-close", project: "p" })
+  expect(state.selected).toBe("c")
+  expect(state.projects.p?.sessions).toEqual(["a", "b"])
+})
+
+test("fallback to a member outside the bounded history keeps history bounded", () => {
+  let state = reduce(openState(), { type: "select", sessionID: "b", observed: 0 })
+  state.recent = ["b", ...Array.from({ length: 49 }, (_, index) => `closed-${index}`)]
+  state = reduce(state, { type: "session-remove", sessionID: "b" })
+  expect(state.selected).toBe("a")
+  expect(state.recent[0]).toBe("a")
+  expect(state.recent).toHaveLength(50)
+})
+
 test("older saved state loads without turning on every project", () => {
   const { projects, ...old } = openState()
   expect(stateSchema.parse(old).projects).toEqual({})

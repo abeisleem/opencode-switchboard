@@ -16,7 +16,9 @@ const bundled = process.argv.includes("bundled")
 const autoOpen = process.argv.includes("auto")
 const scoped = process.argv.includes("scoped")
 const shortcut = process.argv.includes("key")
-const activation = process.argv.includes("activate")
+// Opt-in native-delete lifecycle coverage: node scripts/smoke.mjs session delete
+const deletion = process.argv.includes("delete")
+const activation = process.argv.includes("activate") || deletion
 let clientPlugin = plugin
 if (bundled) {
   clientPlugin = `${root}/workstation-client`
@@ -39,7 +41,7 @@ if (bundled) {
 } else {
   await writeFile(`${directory}/.opencode/opencode.json`, JSON.stringify({ plugins: [plugin] }))
 }
-const wide = process.argv.includes("session")
+const wide = process.argv.includes("session") || deletion
 const cols = wide ? 150 : 100
 const terminal = new xterm.Terminal({ cols, rows: 38, allowProposedApi: true })
 const env = {
@@ -59,6 +61,7 @@ const env = {
     highlights: false,
     animations: false,
     mouse: true,
+    ...(deletion ? { tabs: { mode: "off" } } : {}),
   }),
 }
 let session
@@ -194,6 +197,20 @@ try {
     child.write("\x18i")
     child.write("u")
     await wait((text) => /•\s+Isolated panel smoke/.test(text))
+    if (deletion) {
+      // Use the native session list's two-press delete, not Switchboard's close-row action.
+      // Tabs are off so only Switchboard can return to the most recently visited survivor.
+      child.write("\x18l")
+      await wait((text) => text.includes("Search sessions"))
+      child.write("Isolated panel smoke")
+      await wait((text) => !text.includes("Searching sessions") && text.includes("delete"))
+      child.write("\x04")
+      await wait((text) => text.includes("again to confirm"))
+      child.write("\x04")
+      await wait((text) => text.includes("No sessions found"))
+      child.write("\x1b")
+      await wait(() => current("Activate target") && rowOf("Isolated panel smoke") < 0)
+    }
   } else if (session) {
     child.write("\x1b[Bu")
     await wait((text) => /•\s+Isolated panel smoke/.test(text))
@@ -211,7 +228,7 @@ try {
     frame,
   )
   console.log(
-    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""})`,
+    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""})`,
   )
   passed = true
 } finally {

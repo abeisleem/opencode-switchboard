@@ -452,6 +452,15 @@ export default Plugin.define({
       if (enabled && route.type === "session" && route.sessionID === event.data.sessionID)
         void visit(route.sessionID)
     })
+    const stopDeletes = ctx.data.on("session.deleted", (event) => {
+      const id = event.data.sessionID
+      // Use the exact deleted ID: deleting a subagent must not close its root's row.
+      if (
+        state().selected === id ||
+        Object.values(state().projects).some((project) => project.sessions.includes(id))
+      )
+        void act({ type: "session-remove", sessionID: id })
+    })
     const poll = () => {
       if (stopped) return
       if (enabled) void refresh()
@@ -467,6 +476,7 @@ export default Plugin.define({
       stopEvents()
       stopRenames()
       stopCreated()
+      stopDeletes()
       stopRoute()
       stopPanel()
       stopApp()
