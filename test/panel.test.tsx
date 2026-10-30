@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { rgbToHex, RGBA, TextAttributes } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import type { Plugin } from "@opencode/plugin/tui"
-import type { JSX } from "solid-js"
+import { createSignal, type JSX } from "solid-js"
 import { DEMO_PALETTE as palette, Demo } from "../src/demo"
 import { tint } from "../src/panel"
 import { initialState } from "../src/model"
@@ -94,7 +94,7 @@ const lineOf = (app: Awaited<ReturnType<typeof testRender>>, text: string) =>
     .split("\n")
     .findIndex((line) => line.includes(text))
 
-test("only hovered non-current rows get a fill; the current session stays bold on the bare surface", async () => {
+test("keyboard navigation fills the row while mouse hover and the current session keep their styling", async () => {
   const app = await testRender(() => <Demo />, { width: 26, height: 30 })
   try {
     await app.renderOnce()
@@ -105,7 +105,13 @@ test("only hovered non-current rows get a fill; the current session stays bold o
     expect(cell(app, 24, 1).bg).toBe(bare)
     await app.mockInput.pressArrow("down")
     await app.renderOnce()
-    expect(cell(app, 3, lineOf(app, "Check service"))).toMatchObject({ fg: palette.text, bg: bare })
+    const keyboardRow = lineOf(app, "Check service")
+    for (let x = 0; x < 25; x++) expect(cell(app, x, keyboardRow).bg).toBe(palette.hover)
+    expect(cell(app, 1, keyboardRow).fg).toBe(palette.running)
+    await app.mockInput.pressArrow("up")
+    await app.renderOnce()
+    for (let x = 0; x < 25; x++) expect(cell(app, x, 1).bg).toBe(palette.hover)
+    expect(cell(app, 3, keyboardRow).bg).toBe(bare)
     const y = lineOf(app, "Review provider")
     expect(cell(app, 3, y)).toMatchObject({ fg: palette.muted, bold: false })
     await app.mockMouse.moveTo(8, y)
@@ -118,7 +124,7 @@ test("only hovered non-current rows get a fill; the current session stays bold o
     expect(cell(app, 21, y).fg).toBe(
       rgbToHex(tint(RGBA.fromHex(palette.text), RGBA.fromHex(palette.hover), 0.92)),
     )
-    // Leaving the row clears its fill even though the keyboard cursor remains on it.
+    // Mouse movement takes over: leaving clears the fill even though the cursor remains on it.
     await app.mockMouse.moveTo(25, y)
     await app.renderOnce()
     for (let x = 0; x < 25; x++) expect(cell(app, x, y).bg).toBe(bare)
@@ -149,6 +155,66 @@ test("only hovered non-current rows get a fill; the current session stays bold o
       }
     }
     expect(cell(app, 23, current)).toMatchObject({ char: "✕", fg: palette.text, bg: bare })
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("keyboard selection fills detail lines and close padding but never fills the current session", async () => {
+  const app = await testRender(() => <Demo />, { width: 26, height: 30 })
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    for (let step = 0; step < 4; step++) await app.mockInput.pressArrow("down")
+    await app.renderOnce()
+    const current = lineOf(app, "Inbox panel")
+    const bare = cell(app, 25, current).bg
+    expect(cell(app, 3, current).bold).toBe(true)
+    expect(cell(app, 23, current).char).toBe("✕")
+    for (let x = 0; x < 25; x++) {
+      expect(cell(app, x, current).bg).toBe(bare)
+      expect(cell(app, x, current + 1).bg).toBe(bare)
+    }
+    for (let step = 0; step < 3; step++) await app.mockInput.pressArrow("down")
+    await app.renderOnce()
+    const detail = lineOf(app, "Index project")
+    expect(cell(app, 23, detail).char).toBe("✕")
+    for (let x = 0; x < 25; x++) {
+      expect(cell(app, x, detail).bg).toBe(palette.hover)
+      expect(cell(app, x, detail + 1).bg).toBe(palette.hover)
+    }
+    expect(cell(app, 25, detail).bg).toBe(bare)
+    expect(cell(app, 25, detail + 1).bg).toBe(bare)
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("losing focus clears keyboard fill while unfocused mouse hover still works", async () => {
+  const [focused, setFocused] = createSignal(true)
+  const app = await testRender(() => <Demo focused={focused()} />, { width: 26, height: 30 })
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    await app.mockInput.pressArrow("down")
+    await app.renderOnce()
+    const row = lineOf(app, "Check service")
+    const bare = cell(app, 25, row).bg
+    expect(cell(app, 3, row).bg).toBe(palette.hover)
+    setFocused(false)
+    await app.renderOnce()
+    expect(cell(app, 3, row).bg).toBe(bare)
+    expect(cell(app, 23, row).char).toBe(" ")
+    setFocused(true)
+    await app.renderOnce()
+    expect(cell(app, 3, row).bg).toBe(palette.hover)
+    setFocused(false)
+    await app.mockMouse.moveTo(8, row)
+    await app.renderOnce()
+    expect(cell(app, 3, row).bg).toBe(palette.hover)
+    await app.mockMouse.moveTo(25, row)
+    await app.renderOnce()
+    expect(cell(app, 3, row).bg).toBe(bare)
   } finally {
     await app.dispose()
   }

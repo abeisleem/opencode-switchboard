@@ -39,7 +39,7 @@ export const DEMO_PALETTE = {
   error: "#f7768e",
 } satisfies Palette
 
-export function Demo(props: { current?: string | null } = {}) {
+export function Demo(props: { current?: string | null; focused?: boolean } = {}) {
   const renderer = useRenderer()
   const sessions = demoSessions()
   const seed = initialState()
@@ -61,6 +61,7 @@ export function Demo(props: { current?: string | null } = {}) {
   const [state, setState] = createSignal(seed)
   let actions: Parameters<NonNullable<PanelProps["keys"]>>[0]
   useKeyboard((event) => {
+    if (props.focused === false) return
     if (event.name === "down" || event.name === "j") actions.next()
     if (event.name === "up" || event.name === "k") actions.previous()
     if (event.name === "return") actions.enter()
@@ -77,7 +78,7 @@ export function Demo(props: { current?: string | null } = {}) {
         sessions={sessions}
         error=""
         loading={false}
-        focused
+        focused={props.focused ?? true}
         current={props.current}
         colors={DEMO_PALETTE}
         act={(action) => setState(reduce(state(), action))}
