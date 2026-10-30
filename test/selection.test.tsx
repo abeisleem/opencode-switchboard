@@ -70,7 +70,6 @@ async function harness(input: { sessions: Session[]; state: State }, height = 28
             detail: "#545c7e",
             background: "#1f2335",
             hover: "#292e42",
-            selected: "#1f2335",
             unread: "#ff9e64",
             attention: "#ff9e64",
             running: "#7aa2f7",

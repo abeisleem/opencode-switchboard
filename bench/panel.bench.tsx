@@ -52,7 +52,6 @@ test("panel update cost (benchmark, not a pass/fail check)", async () => {
             detail: "#777777",
             background: "#000000",
             hover: "#222222",
-            selected: "#000000",
             unread: "#ff9900",
             attention: "#ff9900",
             running: "#00aaff",

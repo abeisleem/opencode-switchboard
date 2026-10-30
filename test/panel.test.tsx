@@ -94,15 +94,18 @@ const lineOf = (app: Awaited<ReturnType<typeof testRender>>, text: string) =>
     .split("\n")
     .findIndex((line) => line.includes(text))
 
-test("the cursor and hovered rows get the theme's muted hover fill, keeping status colors", async () => {
+test("only hovered non-current rows get a fill; the current session stays bold on the bare surface", async () => {
   const app = await testRender(() => <Demo />, { width: 26, height: 30 })
   try {
     await app.renderOnce()
     await app.renderOnce()
-    // The keyboard cursor starts on the first project heading.
-    expect(cell(app, 3, 1)).toMatchObject({ char: "a", fg: palette.text, bg: palette.hover, bold: false })
-    expect(cell(app, 24, 1).bg).toBe(palette.hover)
-    expect(cell(app, 25, 1).bg).not.toBe(palette.hover)
+    const bare = cell(app, 25, 1).bg
+    // The keyboard cursor brightens the heading without filling its row.
+    expect(cell(app, 3, 1)).toMatchObject({ char: "a", fg: palette.text, bg: bare, bold: false })
+    expect(cell(app, 24, 1).bg).toBe(bare)
+    await app.mockInput.pressArrow("down")
+    await app.renderOnce()
+    expect(cell(app, 3, lineOf(app, "Check service"))).toMatchObject({ fg: palette.text, bg: bare })
     const y = lineOf(app, "Review provider")
     expect(cell(app, 3, y)).toMatchObject({ fg: palette.muted, bold: false })
     await app.mockMouse.moveTo(8, y)
@@ -115,6 +118,11 @@ test("the cursor and hovered rows get the theme's muted hover fill, keeping stat
     expect(cell(app, 21, y).fg).toBe(
       rgbToHex(tint(RGBA.fromHex(palette.text), RGBA.fromHex(palette.hover), 0.92)),
     )
+    // Leaving the row clears its fill even though the keyboard cursor remains on it.
+    await app.mockMouse.moveTo(25, y)
+    await app.renderOnce()
+    for (let x = 0; x < 25; x++) expect(cell(app, x, y).bg).toBe(bare)
+    expect(cell(app, 3, y).fg).toBe(palette.text)
     // Hovering moved the cursor too, so the heading is no longer lit.
     expect(cell(app, 3, 1)).toMatchObject({ fg: palette.muted, bold: false })
     expect(cell(app, 3, 1).bg).not.toBe(palette.hover)
@@ -122,18 +130,25 @@ test("the cursor and hovered rows get the theme's muted hover fill, keeping stat
     expect(cell(app, 3, lineOf(app, "Inbox panel"))).toMatchObject({
       char: "I",
       fg: palette.text,
+      bg: bare,
       bold: true,
     })
-    // As in the native rail, hovering the current row keeps its selected fill.
+    // Neither the title, detail line, nor padded close target fills the current row.
     const current = lineOf(app, "Inbox panel")
-    await app.mockMouse.moveTo(8, current)
-    await app.renderOnce()
-    expect(cell(app, 3, current)).toMatchObject({
-      char: "I",
-      fg: palette.text,
-      bg: palette.selected,
-      bold: true,
-    })
+    for (const [x, row] of [
+      [8, current],
+      [8, current + 1],
+      [24, current],
+    ] as const) {
+      await app.mockMouse.moveTo(x, row)
+      await app.renderOnce()
+      expect(cell(app, 3, current)).toMatchObject({ char: "I", fg: palette.text, bg: bare, bold: true })
+      for (let column = 0; column < 25; column++) {
+        expect(cell(app, column, current).bg).toBe(bare)
+        expect(cell(app, column, current + 1).bg).toBe(bare)
+      }
+    }
+    expect(cell(app, 23, current)).toMatchObject({ char: "✕", fg: palette.text, bg: bare })
   } finally {
     await app.dispose()
   }
@@ -167,6 +182,7 @@ test("the close ✕ has a gap before it and highlighted target padding after it"
     await app.mockMouse.click(x - 1, y)
     await app.renderOnce()
     expect(cell(app, 3, y).bold).toBe(true)
+    for (let column = 0; column < 25; column++) expect(cell(app, column, y).bg).toBe(cell(app, 25, y).bg)
     expect(app.captureCharFrame()).toContain("Review provider")
     // Clicking the ✕ closes the session.
     await app.mockMouse.click(x, y)
@@ -185,7 +201,7 @@ for (const width of [26, 46]) {
       await app.renderOnce()
       const x = width - 3
       expect(cell(app, x, 1).char).toBe("✕")
-      expect(cell(app, x + 1, 1)).toMatchObject({ char: " ", bg: palette.hover })
+      expect(cell(app, x + 1, 1)).toMatchObject({ char: " ", bg: cell(app, width - 1, 1).bg })
       await app.mockMouse.click(3, 1)
       await app.renderOnce()
       await app.renderOnce()
@@ -225,8 +241,11 @@ test("session details end with the title before the padded close target", async 
     await app.renderOnce()
     expect(app.captureCharFrame().split("\n")[y]).toMatch(/^ \S Inbox pane ✕  $/)
     expect(app.captureCharFrame().split("\n")[y + 1]).toBe("   inbox-pane    ")
+    expect(cell(app, 12, y).fg).toBe(
+      rgbToHex(tint(RGBA.fromHex(palette.text), RGBA.fromHex(palette.background), 0.92)),
+    )
     for (let x = 13; x < 16; x++) {
-      expect(cell(app, x, y + 1)).toMatchObject({ char: " ", bg: palette.selected })
+      expect(cell(app, x, y + 1)).toMatchObject({ char: " ", bg: cell(app, 16, y + 1).bg })
     }
   } finally {
     await app.dispose()
@@ -282,7 +301,7 @@ test("over the new-session screen no row is current", async () => {
     await app.renderOnce()
     const y = lineOf(app, "Inbox panel")
     expect(cell(app, 3, y)).toMatchObject({ char: "I", fg: palette.muted, bold: false })
-    expect(cell(app, 3, y).bg).not.toBe(palette.selected)
+    expect(cell(app, 3, y).bg).toBe(cell(app, 25, y).bg)
   } finally {
     await app.dispose()
   }

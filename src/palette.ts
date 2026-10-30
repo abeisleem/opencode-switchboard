@@ -9,11 +9,9 @@ export type Theme = {
   text: { base: RGBA; muted: RGBA; feedback: { error: { base: RGBA } } }
   background: {
     base: RGBA
-    raised: { base: RGBA }
     action: { primary: { hovered: RGBA } }
   }
   hue: { accent: Record<200, RGBA>; interactive: Record<200, RGBA> }
-  decrease(color: RGBA, amount?: number): RGBA
   /** The tokens retuned for a raised surface; `dialog` is the one the host's side panels and dialogs use. */
   surface(name: "dialog"): Theme
 }
@@ -31,9 +29,8 @@ export function palette(theme: Theme, surface: "panel" | "fullscreen"): Palette 
     muted: tokens.text.muted,
     detail: tint(tokens.text.muted, base, 0.35),
     background: base,
-    // The native tab rail's fills: action hover for a hovered row, a step below the raised surface for the current one.
+    // The current row stays on the bare surface, even under the mouse.
     hover: flatten(tokens.background.action.primary.hovered),
-    selected: flatten(tokens.decrease(tokens.background.raised.base)),
     unread: tokens.hue.accent[200],
     attention: tokens.hue.accent[200],
     running: tokens.hue.interactive[200],
