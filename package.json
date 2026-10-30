@@ -20,6 +20,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write src test scripts demo.tsx",
+    "dev": "bun scripts/dev.ts",
     "demo": "bun --preload @opentui/solid/preload demo.tsx",
     "smoke": "bun run build && node scripts/smoke.mjs && node scripts/smoke.mjs session",
     "build:client": "bun scripts/build-client.ts",

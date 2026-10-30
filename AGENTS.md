@@ -23,7 +23,9 @@
   `dependencies`.
 - The TUI part ships as `dist/tui.js` (`scripts/build.ts`, run on pack): the host
   does not Solid-compile `.tsx` inside `node_modules`. Development loads source via
-  `.opencode/plugins/switchboard/`. The server and RPC parts ship as TS source.
+  `.opencode/plugins/switchboard/`; start it with `bun run dev`, since a published
+  `opencode-switchboard` in the global `cli.json` otherwise replaces the source
+  copy. The server and RPC parts ship as TS source.
 - Persisted state is versioned (`stateSchema.version`). Any shape change needs a
   migration in `src/migrate.ts` plus a test; never reset user organization.
 
