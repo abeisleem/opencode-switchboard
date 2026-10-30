@@ -40,7 +40,7 @@ Run these on every change:
 
 ```sh
 bun run typecheck
-bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/palette.test.ts test/session-creation.test.tsx test/deletion.test.tsx
+bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/palette.test.ts test/session-creation.test.tsx test/deletion.test.tsx test/navigation.test.tsx
 bun run test:releases
 bun run format
 ```

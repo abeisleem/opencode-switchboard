@@ -1,0 +1,305 @@
+import { expect, test } from "bun:test"
+import type { Plugin } from "@opencode/plugin/tui"
+import { RGBA, TextAttributes } from "@opentui/core"
+import { testRender } from "@opentui/solid"
+import { createSignal, type JSX } from "solid-js"
+import { initialState, type Action, type State } from "../src/model"
+import server from "../src/server"
+import plugin from "../src/tui"
+
+type Route = ReturnType<Plugin.Context["ui"]["router"]["current"]>
+type Layer = ReturnType<Parameters<Plugin.Context["keymap"]["layer"]>[0]>
+
+async function harness(options: { route?: Route; members?: string[]; selectGate?: Promise<void> } = {}) {
+  let saved = initialState()
+  saved.revision = 1
+  saved.selected = "a"
+  saved.recent = ["a", "b"]
+  saved.projects.work = { name: "Work", open: true, sessions: options.members ?? ["a", "b"] }
+  const sessions = ["a", "b", "c"].map((id) => ({
+    id,
+    title: `Task ${id}`,
+    projectID: "work",
+    location: { directory: "/work" },
+    time: {},
+  }))
+  const get = async ({ sessionID }: { sessionID: string }) =>
+    sessionID === "child"
+      ? { ...sessions[1]!, id: "child", parentID: "b" }
+      : sessions.find((item) => item.id === sessionID)!
+  const noop = () => {}
+  let changed: (() => void) | undefined
+  let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }
+  await server.setup({
+    storage: {
+      get: async () => saved,
+      set: async (_key: string, value: State) => {
+        saved = value
+      },
+    },
+    session: { get },
+    rpc: {
+      register: async (_contract: unknown, handlers: typeof rpc) => {
+        rpc = handlers
+        return {
+          events: {
+            emit: async () => {
+              changed?.()
+            },
+          },
+        }
+      },
+    },
+  } as unknown as Parameters<typeof server.setup>[0])
+  const [route, navigate] = createSignal<Route>(options.route ?? { type: "session", sessionID: "b" })
+  const layers: (() => Layer)[] = []
+  const actions: Action[] = []
+  let render!: () => JSX.Element
+  let renderApp!: () => JSX.Element
+  let cleanup!: ReturnType<typeof plugin.setup>
+  const color = RGBA.fromHex("#c0caf5")
+  const context = {
+    options: {},
+    location: { directory: "/work" },
+    client: {
+      rpc: () => ({
+        snapshot: rpc.snapshot,
+        act: async (action: Action) => {
+          actions.push(action)
+          if (action.type === "select") await options.selectGate
+          return rpc.act(action)
+        },
+        events: {
+          on: (_type: string, listener: () => void) => {
+            changed = listener
+            return noop
+          },
+        },
+      }),
+      project: { list: async () => [{ id: "work", name: "Work", canonical: "/work" }] },
+      session: { get, active: async () => ({}), list: async () => ({ data: sessions, cursor: {} }) },
+      permission: { request: { list: async () => ({ data: [] }) } },
+      form: { list: async () => ({ data: [] }) },
+    },
+    data: {
+      on: () => noop,
+      session: { root: (id: string) => (id === "child" ? "b" : id), get: () => undefined },
+    },
+    storage: {
+      memory: (_key: string, input: { initial: unknown }) => [input.initial, noop],
+      store: (_key: string, input: { initial: unknown }) => [input.initial, noop],
+    },
+    theme: {
+      text: { base: color, muted: color, feedback: { error: { base: color } } },
+      background: { base: color, action: { primary: { hovered: color } } },
+      hue: { accent: { 200: color }, interactive: { 200: color } },
+    },
+    ui: {
+      router: {
+        current: route,
+        navigate,
+        register: (page: { render: () => JSX.Element }) => {
+          render = page.render
+          return noop
+        },
+      },
+      slot: (slot: { append: string; render: () => JSX.Element }) => {
+        if (slot.append === "app") renderApp = slot.render
+        return noop
+      },
+      panel: { open: () => route().type === "session", current: () => undefined, close: noop },
+      tabs: { enabled: () => false },
+    },
+    keymap: {
+      dispatch: noop,
+      layer: (factory: () => Layer) => {
+        layers.push(factory)
+      },
+    },
+  } as unknown as Plugin.Context
+  const app = await testRender(
+    () => {
+      cleanup = plugin.setup(context)
+      renderApp()
+      return render()
+    },
+    { width: 60, height: 20 },
+  )
+  const commands = () => layers.flatMap((factory) => factory().commands ?? [])
+  const command = (id: string) => commands().find((item) => item.id === id)!
+  return {
+    app,
+    route,
+    navigate,
+    actions,
+    rpc,
+    saved: () => saved,
+    sessions,
+    open: () => command("opencode-switchboard.open").run(),
+    close: () => command("opencode-switchboard.close-current"),
+    key: (bind: string) =>
+      commands()
+        .find((item) => item.bind === bind)!
+        .run(),
+    async frame() {
+      await app.renderOnce()
+      await app.renderOnce()
+    },
+    bold(title: string) {
+      return app
+        .captureSpans()
+        .lines.some((line) =>
+          line.spans.some(
+            (span) => span.text.includes(title) && Boolean(span.attributes & TextAttributes.BOLD),
+          ),
+        )
+    },
+    async dispose() {
+      const stop = await cleanup
+      await stop?.()
+      await app.dispose()
+    },
+  }
+}
+
+test("startup adopts --session instead of the previously saved selection", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.route()).toEqual({ type: "session", sessionID: "b" })
+    expect(run.saved().selected).toBe("b")
+    expect(run.saved().recent.slice(0, 2)).toEqual(["b", "a"])
+    expect(run.bold("Task b")).toBe(true)
+    expect(run.bold("Task a")).toBe(false)
+    await run.key("u")
+    expect(run.actions.at(-1)).toEqual({ type: "unread", sessionID: "b" })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("the current marker follows the displayed route while selection synchronization is pending", async () => {
+  const gate = Promise.withResolvers<void>()
+  const run = await harness({ selectGate: gate.promise })
+  const opening = run.open()
+  try {
+    await run.frame()
+    expect(run.saved().selected).toBe("a")
+    expect(run.bold("Task b")).toBe(true)
+    expect(run.bold("Task a")).toBe(false)
+  } finally {
+    gate.resolve()
+    await opening
+    await run.dispose()
+  }
+})
+
+test("startup admits an unlisted session and preserves a displayed subagent route", async () => {
+  const run = await harness({ route: { type: "session", sessionID: "child" }, members: ["a"] })
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.route()).toEqual({ type: "session", sessionID: "child" })
+    expect(run.saved().selected).toBe("b")
+    expect(run.saved().projects.work?.sessions).toEqual(["b", "a"])
+    expect(run.bold("Task b")).toBe(true)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("later selections from another client still synchronize the route and marker", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.rpc.act({ type: "select", sessionID: "c", observed: 0 })
+    await run.frame()
+    expect(run.route()).toEqual({ type: "session", sessionID: "c" })
+    expect(run.bold("Task c")).toBe(true)
+    expect(run.bold("Task b")).toBe(false)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("reopening adopts this client's route after another client changed the saved selection", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.key("escape")
+    await run.rpc.act({ type: "select", sessionID: "c", observed: 0 })
+    run.navigate({ type: "session", sessionID: "a" })
+    await run.open()
+    await run.frame()
+    expect(run.route()).toEqual({ type: "session", sessionID: "a" })
+    expect(run.saved().selected).toBe("a")
+    expect(run.bold("Task a")).toBe(true)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("leader-w closes the viewed session rather than the panel cursor and keeps the session intact", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    await run.key("up,k") // Cursor on a; conversation remains b.
+    const close = run.close()
+    expect(close?.bind).toBe("<leader>w")
+    expect(typeof close.enabled === "function" && close.enabled()).toBe(true)
+    await close.run()
+    await run.frame()
+    expect(run.saved().projects.work?.sessions).toEqual(["a"])
+    expect(run.route()).toEqual({ type: "session", sessionID: "a" })
+    expect(run.bold("Task a")).toBe(true)
+    expect(run.sessions.map((item) => item.id)).toEqual(["a", "b", "c"])
+    expect(run.actions.filter((action) => action.type === "session-remove")).toEqual([
+      { type: "session-remove", sessionID: "b" },
+    ])
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("closing the last viewed root from a subagent returns home and disables close", async () => {
+  const run = await harness({ route: { type: "session", sessionID: "child" }, members: ["b"] })
+  try {
+    await run.open()
+    expect(run.close()).toBeDefined()
+    await run.close().run()
+    await run.frame()
+    expect(run.saved().selected).toBeNull()
+    expect(run.saved().projects.work?.sessions).toEqual([])
+    expect(run.route().type).toBe("plugin")
+    const enabled = run.close().enabled
+    expect(typeof enabled === "function" && enabled()).toBe(false)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("startup at home does not select saved work and inactive Switchboard leaves the shortcut disabled", async () => {
+  const run = await harness({ route: { type: "home" } })
+  try {
+    expect(run.close()).toBeDefined()
+    const enabled = () => {
+      const value = run.close().enabled
+      return typeof value === "function" && value()
+    }
+    expect(enabled()).toBe(false)
+    await run.open()
+    await run.frame()
+    expect(run.saved().selected).toBe("a")
+    expect(run.bold("Task a")).toBe(false)
+    expect(enabled()).toBe(false)
+    run.navigate({ type: "session", sessionID: "b" })
+    await run.frame()
+    expect(enabled()).toBe(true)
+    await run.key("escape")
+    expect(enabled()).toBe(false)
+  } finally {
+    await run.dispose()
+  }
+})

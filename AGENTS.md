@@ -8,7 +8,7 @@ OpenCode plugin, one npm package with three parts: `.` (server: storage + RPC), 
 | Install    | `bun install`                                                                                                         |
 | Typecheck  | `bun run typecheck`                                                                                                   |
 | Release sync tests | `bun run test:releases` |
-| Fast tests | `bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/palette.test.ts test/session-creation.test.tsx test/deletion.test.tsx` |
+| Fast tests | `bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/palette.test.ts test/session-creation.test.tsx test/deletion.test.tsx test/navigation.test.tsx` |
 | Format     | `bun run format`                                                                                                      |
 | Build      | `bun run build` (writes `dist/tui.js`; also runs on pack)                                                             |
 | Pack check | `bun run pack:dry-run`                                                                                                |
