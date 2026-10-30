@@ -40,7 +40,8 @@ Run these on every change:
 
 ```sh
 bun run typecheck
-bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts
+bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/palette.test.ts test/session-creation.test.tsx test/deletion.test.tsx
+bun run test:releases
 bun run format
 ```
 
@@ -83,5 +84,26 @@ Historical design notes are in [`docs/design`](docs/design).
 ## Releasing
 
 Bump the version and update `CHANGELOG.md` in a pull request. After it merges, tag `vX.Y.Z` on `main`, push
-the tag, publish to npm, and create the GitHub release. The full checklist is in
-[AGENTS.md](AGENTS.md#releasing).
+the tag, and publish from the checkout with `npm publish`. Check `gh auth status` before publishing: the
+`postpublish` hook uses the authenticated GitHub CLI to dispatch **Sync npm releases**. The full validation
+and approval checklist is in [AGENTS.md](AGENTS.md#releasing).
+
+The workflow creates or updates release notes from `CHANGELOG.md` for versions that exist on npm and have
+a pushed source tag. It marks GitHub's latest release from npm's `latest` dist-tag and marks prereleases
+separately. Keep notes in `CHANGELOG.md`; a sync replaces the GitHub release body but preserves assets.
+The original untagged `0.0.0-stage` npm placeholder is not a repository release.
+
+Synchronization also runs on tag pushes, relevant changes to `main`, and hourly to recover from missed
+dispatches or delayed npm processing. It uses the workflow's `GITHUB_TOKEN`; no npm publishing secret is
+needed. Check the workflow result and the npm/GitHub release before declaring publishing complete.
+
+If npm accepted a publish but registry processing or the post-publish dispatch failed, retry synchronization
+instead of publishing the same version again:
+
+```sh
+gh workflow run sync-releases.yml --ref main -f version=X.Y.Z
+```
+
+The version input waits up to 15 minutes for npm visibility. Omit it to reconcile all currently published
+tagged versions. For a local read-only preview, run `bun run release:sync --dry-run`; `bun run release:sync`
+applies the same synchronization using your GitHub CLI credentials.
