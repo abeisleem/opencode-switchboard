@@ -185,7 +185,8 @@ export function badges(sessions: Session[], state: State) {
   const blocked = sessions.filter(
     (session) => session.status === "Question" || session.status === "Approval",
   ).length
-  return [blocked ? `? ${blocked}` : "", running ? `⠿ ${running}` : "", unseen ? `• ${unseen}` : ""]
+  // The middle two braille rows balance the static activity mark beside the unread dot.
+  return [blocked ? `? ${blocked}` : "", running ? `⠶ ${running}` : "", unseen ? `• ${unseen}` : ""]
     .filter(Boolean)
     .join("  ")
 }
