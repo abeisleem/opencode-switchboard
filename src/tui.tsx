@@ -66,6 +66,8 @@ export default Plugin.define({
       initial: { cursors: new Map([["inbox", createSelectionMemory()]]) },
     })
     const selectionMemory = local.cursors.get("inbox")!
+    // Per-machine and durable, so the native-tabs hint shows once, not on every open.
+    const [hints, setHints] = ctx.storage.store("hints", { initial: { nativeTabs: false } })
     const [loading, setLoading] = createSignal(false)
     let enabled = false
     let stopped = false
@@ -209,10 +211,24 @@ export default Plugin.define({
         focusPanel?.()
         void revealCurrent()
       } else showPanel()
+      suggestDisablingTabs()
       await refresh()
       // First use: adopt the current conversation's project rather than every recent one.
       if (!Object.keys(state().projects).length && origin.type === "session") await visit(origin.sessionID)
       await revealCurrent()
+    }
+    /** The switchboard is meant to replace the native tabs; say once how to turn them off. */
+    function suggestDisablingTabs() {
+      if (hints.nativeTabs || !ctx.ui.tabs.enabled()) return
+      void setHints((draft) => {
+        draft.nativeTabs = true
+      })
+      ctx.ui.toast.show({
+        variant: "info",
+        title: "Switchboard replaces session tabs",
+        message: 'To hide the native tabs, set "tabs": { "mode": "off" } in ~/.config/opencode/cli.json.',
+        duration: 10_000,
+      })
     }
     function close() {
       enabled = false
