@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "opencode-switchboard",
   "version": "0.1.1",
-  "description": "OpenCode plugin: a project-grouped switchboard for your sessions. See which agents are running, which need you, and park work for later.",
+  "description": "A better session tabs panel for OpenCode: sessions grouped by project and worktree, unread marks, and Later to snooze work.",
   "type": "module",
   "exports": {
     ".": "./src/server.ts",

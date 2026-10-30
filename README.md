@@ -1,26 +1,27 @@
 # opencode-switchboard
 
-Know which OpenCode sessions are running, which need you, and park the rest for later, across all your
-projects.
+A better session tabs panel for OpenCode: sessions grouped by project and worktree, unread marks, and a
+Later fold to snooze work until you come back to it.
 
 <!-- DEMO: add the demo video or GIF here before the launch post. -->
 
-With several agent sessions open across a few projects, it gets hard to tell what is still working, what is
-waiting on an approval or an answer, and what finished while you were elsewhere. The switchboard is a TUI
-panel that groups your sessions by project, marks the state of each one, and lets you move work to **Later**
-without losing it.
+OpenCode's native tabs are a flat strip of open sessions. Once you run several agents across a few projects,
+it gets hard to tell what is still working, what is waiting on you, and what finished while you were
+elsewhere. The switchboard replaces the tabs with a panel built for that:
 
-- **Grouped by project.** Each open project lists its sessions, including those in worktrees. Agent activity
-  never reorders the list.
+- **Grouped by project and worktree.** Each project lists its sessions; sessions in a worktree sit under the
+  project they belong to, labeled with the worktree. Agent activity never reorders the list.
 - **State at a glance.** Every row shows whether the session needs approval, has a question, is running,
   failed, or finished unread.
-- **Active and Later.** Park a session under its project's Later fold and bring it back with one key.
+- **Unread marks.** Mark a session unread to come back to it, the way you would an email.
+- **Later, to snooze work.** Move a session to its project's Later fold to get it out of the way without losing
+  it, and bring it back with one key. Unread and Later are independent.
 - **Nothing is deleted.** Closing a session or a project only hides it from the panel.
-- **Shared by every client.** The switchboard lives on the OpenCode server, so each TUI connected to it sees
+- **Follows you across TUIs.** The switchboard lives on the OpenCode server, so every TUI connected to it sees
   the same projects, sessions, and unread marks.
 
-> **Status:** early preview (0.x). Requires OpenCode 2.2.0. The panel opens in the session side panel;
-> replacing the native tab rail is planned.
+> **Status:** early preview (0.x). Requires OpenCode 2.2.0. OpenCode plugins can only add panels on the right
+> side of a session, so the switchboard opens there rather than where the native tabs sit.
 
 ## Install
 
@@ -59,6 +60,17 @@ only loads it inside that project.
 As of OpenCode 2.2.0, a TUI connected to a remote server only shows a server plugin's panel when the package
 is already installed on the TUI's own machine; it does not download it. Listing it in `cli.json` installs it
 there. Listing it in both files on one machine is safe: the entries resolve to a single copy.
+
+**3. Optional: turn off the native tabs.** The switchboard is meant to replace them. In `cli.json` on each TUI
+machine:
+
+```json
+{
+  "tabs": { "mode": "off" }
+}
+```
+
+The panel shows this tip once, the first time you open it with native tabs still on.
 
 OpenCode installs npm plugins automatically. If `/switchboard` does not appear, see
 [Troubleshooting](#troubleshooting).
@@ -131,8 +143,9 @@ through OpenCode's native session list.
 ## How state is shared
 
 Open projects, their sessions, Active/Later placement, unread marks, the selected session, and folds are
-stored by the server part and shared by every client of that server. When two TUIs have the panel open,
-opening a session in one switches the other to it. Cursor and scroll position are per client.
+stored by the server part and shared by every client of that server. By design, your selection follows you:
+when two TUIs have the panel open, opening a session in one switches the other to it, so you can move between
+machines without losing your place. Cursor and scroll position are per client.
 
 OpenCode's desktop and mobile apps do not show the panel. Viewing a finished session there still counts as
 reading it, but does not clear a session you marked unread.

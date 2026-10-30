@@ -58,7 +58,8 @@ deletion belongs to OpenCode's native session list.
 Follow https://opencode.ai/v2/docs/build/plugins#publish and, for Effect,
 https://opencode.ai/v2/docs/build/plugins/effect#publish.
 
-1. Bump the version for any user-visible change.
+1. Bump the version for any user-visible change, and add the release's user-visible changes to
+   `CHANGELOG.md` with the release date.
 2. Run typecheck and the fast tests.
 3. Ask the user to approve the gated checks: the integration test, `smoke`, `smoke:client`, and
    `smoke:package` (packs the tarball, installs it with npm into a clean directory, and runs the real-TUI
