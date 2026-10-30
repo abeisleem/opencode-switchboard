@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin/tui"
-import type { Row } from "./model"
+import type { Row, State } from "./model"
 
 type Router = Plugin.Context["ui"]["router"]
 
@@ -16,6 +16,14 @@ export function followRoute(
   const here = route.type === "session" ? root(route.sessionID) : null
   if (here === selected) return
   return selected ? { type: "session", sessionID: selected } : { type: "home" }
+}
+
+/**
+ * Whether a newly accepted shared state navigates this client. The first state a client accepts
+ * only syncs it; following it would jump a freshly started TUI to the last selected session.
+ */
+export function navigated(synced: boolean, previous: State, next: State) {
+  return synced && next.navigation !== previous.navigation
 }
 
 export type SelectionMemory = { items: Row[]; key: string; index: number; scrollTop: number; owner?: symbol }

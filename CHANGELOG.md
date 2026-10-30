@@ -11,8 +11,11 @@
   moves focus to its conversation.
 - Opening the switchboard from the new-session screen marks no session as current and puts the cursor on that
   screen's project, adding the project if needed. Closing it returns to the new-session screen.
-- Hovered and current rows use the native tab rail's fills, so the hover fill is visible in the side panel, and
-  the current row keeps its fill when hovered.
+- Opening the switchboard right after starting a TUI no longer jumps to the last selected session. The first
+  state a TUI loads only syncs it; selections made later in other clients still move it.
+- Hovered and current rows use the native tab rail's fills, and the current row keeps its fill when hovered. In
+  the side panel these come from the theme's raised-surface colors, so the hover fill shows in every theme
+  instead of matching the panel background.
 - The first time you open the panel on a machine with OpenCode's native tabs still on, a one-time tip explains
   how to turn them off.
 - The panel has a row of space at the top, and its text is no longer selected when you drag across it.
