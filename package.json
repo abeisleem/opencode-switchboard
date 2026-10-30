@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "opencode-switchboard",
   "version": "0.1.1",
-  "description": "OpenCode plugin: a project-grouped switchboard for your sessions that replaces the tab panel — see what's running, what needs you, and park work for later.",
+  "description": "OpenCode plugin: a project-grouped switchboard for your sessions. See which agents are running, which need you, and park work for later.",
   "type": "module",
   "exports": {
     ".": "./src/server.ts",
@@ -37,8 +37,12 @@
     "opencode-plugin",
     "opencode-tui",
     "plugin",
+    "tui",
     "tabs",
     "sessions",
+    "session-manager",
+    "agents",
+    "coding-agent",
     "switchboard"
   ],
   "author": "Abe Isleem",
