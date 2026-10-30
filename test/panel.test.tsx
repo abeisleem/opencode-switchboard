@@ -3,9 +3,9 @@ import { rgbToHex, RGBA, TextAttributes } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import type { Plugin } from "@opencode/plugin/tui"
 import { createSignal, type JSX } from "solid-js"
-import { DEMO_PALETTE as palette, Demo } from "../src/demo"
-import { tint } from "../src/panel"
-import { initialState } from "../src/model"
+import { DEMO_PALETTE as palette, Demo, demoSessions } from "../src/demo"
+import { InboxPanel, tint } from "../src/panel"
+import { initialState, laterKey } from "../src/model"
 import plugin from "../src/tui"
 
 test("panel mirrors the native rail: left indicators, no header, footer help only", async () => {
@@ -329,13 +329,13 @@ for (const width of [26, 46]) {
       await app.renderOnce()
       const line = app.captureCharFrame().split("\n")[1]!
       expect(line).toContain("▸ api-server")
-      expect(line).toEndWith("⠶ 1  • 1 ✕ ")
-      expect(cell(app, width - 11, 1)).toMatchObject({ char: "⠶", fg: palette.text, bg: palette.hover })
+      expect(line).toEndWith("⠿ 1  • 1 ✕ ")
+      expect(cell(app, width - 11, 1)).toMatchObject({ char: "⠿", fg: palette.text, bg: palette.hover })
       expect(cell(app, width - 6, 1)).toMatchObject({ char: "•", fg: palette.text, bg: palette.hover })
       // Resting, hovering the title, and hovering the padded close target keep the same layout.
       await app.mockMouse.moveTo(3, lineOf(app, "dotfiles"))
       await app.renderOnce()
-      expect(cell(app, width - 11, 1)).toMatchObject({ char: "⠶", fg: palette.muted })
+      expect(cell(app, width - 11, 1)).toMatchObject({ char: "⠿", fg: palette.muted })
       expect(cell(app, x, 1).char).toBe(" ")
       await app.mockMouse.moveTo(x + 1, 1)
       await app.renderOnce()
@@ -544,3 +544,69 @@ test("native session renames refresh mounted rows without waiting for the poll",
     await app.dispose()
   }
 })
+
+for (const width of [26, 46]) {
+  test(`project and Later badges stay six-dot and static in single-line headings at ${width} columns`, async () => {
+    const sessions = demoSessions()
+    const state = initialState()
+    for (const session of sessions) {
+      const project = (state.projects[session.project] ??= {
+        name: session.projectName,
+        open: true,
+        sessions: [],
+      })
+      project.sessions.push(session.id)
+    }
+    for (const id of ["index", "keys", "theme"]) state.sessions[id] = { placement: "later", unread: false }
+    state.collapsed = ["api-server", laterKey("dotfiles")]
+    const noop = () => {}
+    const app = await testRender(
+      () => (
+        <InboxPanel
+          state={state}
+          sessions={sessions}
+          colors={palette}
+          error=""
+          loading={false}
+          focused={false}
+          act={noop}
+          open={noop}
+          refresh={noop}
+          close={noop}
+          help={noop}
+          diagnostics={noop}
+        />
+      ),
+      { width, height: 20 },
+    )
+    try {
+      await app.renderOnce()
+      await app.renderOnce()
+      const lines = () => app.captureCharFrame().split("\n")
+      const before = lines()
+      expect(before[1]).toContain("▸ api-server")
+      expect(before[3]).toContain("▾ dotfiles")
+      expect(before[12]).toContain("▸ Later (3)")
+      for (const y of [1, 12]) {
+        expect(before[y]).toContain("⠿ 1  • 1")
+        // Unicode dots 1–6 fill the top three rows; dots 7–8 stay off.
+        const mark = before[y]!.match(/(\S) 1  • 1/)![1]!
+        expect(mark.codePointAt(0)! - 0x2800).toBe(0b00111111)
+        // These are cell-geometry checks, not font-raster alignment checks.
+        expect(before[y + 1]!.trim()).toBe("")
+      }
+      // A visible running session proves the animation clock advanced, while
+      // both collapsed badges keep the same glyph, counts, and row positions.
+      expect(before[5]).toContain("⠋ Inbox panel")
+      await Bun.sleep(200)
+      await app.renderOnce()
+      await app.renderOnce()
+      const after = lines()
+      expect(after[5]).not.toContain("⠋ Inbox panel")
+      expect(after[5]).toContain("Inbox panel")
+      for (const y of [1, 2, 3, 12, 13]) expect(after[y]).toBe(before[y])
+    } finally {
+      await app.dispose()
+    }
+  })
+}

@@ -188,8 +188,9 @@ export function badges(sessions: Session[], state: State) {
   const blocked = sessions.filter(
     (session) => session.status === "Question" || session.status === "Approval",
   ).length
-  // The middle two braille rows balance the static activity mark beside the unread dot.
-  return [blocked ? `? ${blocked}` : "", running ? `⠶ ${running}` : "", unseen ? `• ${unseen}` : ""]
+  // Static, fully lit session-spinner footprint: two columns, top three Braille rows.
+  // Its optical baseline is terminal/font-controlled; extra row height cannot shift dots within a cell.
+  return [blocked ? `? ${blocked}` : "", running ? `⠿ ${running}` : "", unseen ? `• ${unseen}` : ""]
     .filter(Boolean)
     .join("  ")
 }
