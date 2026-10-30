@@ -9,7 +9,7 @@ import { loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
 import { InboxPanel, type PanelProps } from "./panel"
 import { palette } from "./palette"
-import { createSelectionMemory, followRoute } from "./selection"
+import { createSelectionMemory, followRoute, navigated } from "./selection"
 
 /** The host's plugin boundary only toasts render crashes; keep the stack for diagnosis. */
 const ERROR_LOG = join(tmpdir(), "opencode-switchboard-errors.log")
@@ -75,6 +75,8 @@ export default Plugin.define({
     // Set when the inbox itself navigates home (e.g. after closing a project), so the
     // home screen it lands on does not count as choosing that project.
     let mirroredHome = false
+    // Set once this client has loaded the shared state, accepted or not; see `navigated`.
+    let synced = false
     let timer: ReturnType<typeof setTimeout> | undefined
     let membership = ""
     let refreshAgain = false
@@ -117,7 +119,7 @@ export default Plugin.define({
     function accept(next: State) {
       // Revisions only grow; an equal one is the state already shown (e.g. a duplicate snapshot).
       if (stopped || next.revision <= state().revision) return
-      const changed = next.navigation !== state().navigation
+      const changed = navigated(synced, state(), next)
       const admitted = Object.entries(next.projects)
         .filter(([, project]) => project.open)
         .map(([id, project]) => `${id}:${project.sessions.join(",")}`)
@@ -156,6 +158,7 @@ export default Plugin.define({
       setLoading(true)
       try {
         accept(await rpc.snapshot({}, options))
+        synced = true
         const result = await loadCatalog(ctx.client, state(), attention)
         if (stopped) return
         // Identical catalogs must not re-render the panel; most refreshes change nothing.

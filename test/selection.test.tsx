@@ -3,7 +3,7 @@ import { createSignal, Show } from "solid-js"
 import { testRender } from "@opentui/solid"
 import { InboxPanel, type PanelProps } from "../src/panel"
 import { initialState, reduce, type Action, type Session, type State } from "../src/model"
-import { createSelectionMemory } from "../src/selection"
+import { createSelectionMemory, navigated } from "../src/selection"
 
 type Controls = Parameters<NonNullable<PanelProps["keys"]>>[0]
 
@@ -300,3 +300,14 @@ for (const mixed of [false, true])
       await app.dispose()
     }
   })
+
+test("a client's first loaded state syncs it without navigating; later changes navigate", () => {
+  const shared = { ...initialState(), revision: 7, navigation: 3, selected: "last" }
+  expect(navigated(false, initialState(), shared)).toBe(false)
+  expect(navigated(true, shared, { ...shared, revision: 8 })).toBe(false)
+  expect(navigated(true, shared, { ...shared, revision: 8, navigation: 4, selected: "other" })).toBe(true)
+  // A new user's state starts at revision 0; once synced, their first selection still navigates.
+  expect(
+    navigated(true, initialState(), { ...initialState(), revision: 1, navigation: 1, selected: "first" }),
+  ).toBe(true)
+})
