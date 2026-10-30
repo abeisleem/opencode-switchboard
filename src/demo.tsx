@@ -40,7 +40,7 @@ export const DEMO_PALETTE = {
   error: "#f7768e",
 } satisfies Palette
 
-export function Demo() {
+export function Demo(props: { current?: string | null } = {}) {
   const renderer = useRenderer()
   const sessions = demoSessions()
   const seed = initialState()
@@ -79,6 +79,7 @@ export function Demo() {
         error=""
         loading={false}
         focused
+        current={props.current}
         colors={DEMO_PALETTE}
         act={(action) => setState(reduce(state(), action))}
         open={(session) =>

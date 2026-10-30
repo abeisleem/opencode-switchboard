@@ -83,6 +83,9 @@ export default Plugin.define({
     // A session was opened from the panel: hand focus to its conversation
     // (the composer) once the route settles and the panel remounts beside it.
     let focusConversation = false
+    // Whether the fullscreen switchboard covers the new-session screen, and that screen's project.
+    const [fromHome, setFromHome] = createSignal(false)
+    let homeLocation: LocationProject | undefined
 
     function returnFocus() {
       if (!focusConversation) return
@@ -95,7 +98,19 @@ export default Plugin.define({
       setError(cause instanceof Error ? cause.message : String(cause))
     }
     function showPanel() {
-      if (!ctx.ui.panel.open(PANEL)) ctx.ui.router.navigate({ type: "plugin", name: "switchboard" })
+      if (ctx.ui.panel.open(PANEL)) return
+      // No side panel here (e.g. the new-session screen): show the switchboard fullscreen.
+      const route = ctx.ui.router.current()
+      if (route.type === "plugin") return
+      setFromHome(route.type === "home")
+      homeLocation = route.type === "home" ? locationProject(ctx.location) : undefined
+      ctx.ui.router.navigate({ type: "plugin", name: "switchboard" })
+    }
+    /** The conversation this client shows: none on, or fullscreen over, the new-session screen. */
+    function viewing() {
+      const route = ctx.ui.router.current()
+      if (route.type === "home" || (route.type === "plugin" && fromHome())) return null
+      return state().selected
     }
     function accept(next: State) {
       // Revisions only grow; an equal one is the state already shown (e.g. a duplicate snapshot).
@@ -170,6 +185,11 @@ export default Plugin.define({
     /** Unfold whatever hides the current conversation's row, then put the cursor on it. */
     async function revealCurrent() {
       const route = ctx.ui.router.current()
+      // Over the new-session screen, no session is current: start on its project instead.
+      if (viewing() === null && route.type !== "session") {
+        if (homeLocation) await openLocationProject(homeLocation)
+        return
+      }
       const id = route.type === "session" ? ctx.data.session.root(route.sessionID) : state().selected
       if (!id) return
       const project = projectOf(state(), id)
@@ -198,7 +218,7 @@ export default Plugin.define({
       enabled = false
       ctx.ui.panel.close()
       if (ctx.ui.router.current().type === "plugin") {
-        const selected = state().selected
+        const selected = viewing()
         ctx.ui.router.navigate(selected ? { type: "session", sessionID: selected } : { type: "home" })
       }
     }
@@ -289,6 +309,7 @@ export default Plugin.define({
             error={error() || refreshError()}
             loading={loading()}
             focused={focused()}
+            current={viewing()}
             colors={colors()}
             act={(action) => void act(action)}
             open={(session) => {
