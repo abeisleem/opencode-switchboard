@@ -1,25 +1,20 @@
 # Changelog
 
-## 0.1.5 (2026-10-30)
+## 0.1.2 (2026-10-30)
 
+- The current session is bold without a row background, even while hovered. Other rows highlight only on
+  mouse hover; the keyboard cursor still brightens their text and exposes the close control.
+- Renaming a session from OpenCode's session list refreshes its title in the panel immediately, without waiting
+  for the next poll or a manual refresh.
 - Deleting the current session from OpenCode's session list removes its panel row and returns to the most
   recently visited open session. Deleting a background session leaves the current conversation in place.
 - Closing the current row or project falls back to another open session even when none is in recent history.
-
-## 0.1.4 (2026-10-30)
-
 - Sessions opened before their creation finishes are added to the panel when creation completes. This also
   adds their new project without a second navigation or a transient “Session not found” error.
-
-## 0.1.3 (2026-10-30)
-
 - Collapsed project and Later headings use a vertically balanced running indicator.
-- Row close controls have a highlighted space after the ×, keeping the button clear of the highlight edge.
-
-## 0.1.2 (2026-10-30)
-
-- Renaming a session from OpenCode's session list refreshes its title in the panel immediately, without waiting
-  for the next poll or a manual refresh.
+- Row close controls have a padded cell after the ×, keeping hovered non-current rows' buttons clear of the
+  highlight edge.
+- Install troubleshooting documents the working OpenCode 2.2 override for npm `min-release-age`.
 
 ## 0.1.1 (2026-10-30)
 
