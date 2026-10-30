@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 (2026-10-30)
+
+- Renaming a session from OpenCode's session list refreshes its title in the panel immediately, without waiting
+  for the next poll or a manual refresh.
+
 ## 0.1.1 (2026-10-30)
 
 - The plugin uses OpenCode's own `@opencode/plugin` instead of installing a copy. It is now an optional peer

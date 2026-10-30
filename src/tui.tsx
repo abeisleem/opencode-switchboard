@@ -434,6 +434,9 @@ export default Plugin.define({
     const stopEvents = rpc.events.on("changed", () => {
       if (enabled) void rpc.snapshot({}, options).then(accept).catch(report)
     })
+    const stopRenames = ctx.data.on("session.renamed", () => {
+      if (enabled) void refresh()
+    })
     const poll = () => {
       if (stopped) return
       if (enabled) void refresh()
@@ -447,6 +450,7 @@ export default Plugin.define({
       clearTimeout(timer)
       clearTimeout(autoOpen)
       stopEvents()
+      stopRenames()
       stopRoute()
       stopPanel()
       stopApp()
