@@ -366,7 +366,10 @@ export default Plugin.define({
                 return
               }
               if (!enabled || !id) return
-              void visit(id)
+              // Opened elsewhere, e.g. the native session list: the panel remounts beside it and
+              // the host focuses the panel, so hand focus to the conversation as a panel open does.
+              focusConversation = true
+              void visit(id).then(() => setTimeout(returnFocus, 0))
             },
             { defer: true },
           ),
