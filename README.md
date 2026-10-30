@@ -9,8 +9,18 @@ without losing it.
 
 ## Install
 
-Add the package to your OpenCode config (`~/.config/opencode/opencode.json(c)` or a
-project's `.opencode/opencode.jsonc`):
+The plugin has two parts: a **server part**, which stores your switchboard, and a
+**panel** shown in the TUI. Where you list the package depends on where your TUI runs.
+
+| Your setup                                            | `opencode.json(c)` on the server machine | `cli.json` on the TUI machine |
+| ----------------------------------------------------- | ---------------------------------------- | ----------------------------- |
+| TUI and server on the same machine (plain `opencode`) | Required                                 | Not needed                    |
+| TUI on another machine (`opencode --server …`)        | Required                                 | Required                      |
+
+`cli.json` alone is never enough: the server part only loads from `opencode.json(c)`.
+
+**1. On the machine that runs the OpenCode server**, add it to your global
+`~/.config/opencode/opencode.json(c)`:
 
 ```jsonc
 {
@@ -19,13 +29,11 @@ project's `.opencode/opencode.jsonc`):
 }
 ```
 
-One entry loads both parts. The server part stores the switchboard, and a TUI running on
-the same machine as the server loads the panel.
+Use the global config: the switchboard spans all your projects, and a project's
+`.opencode/opencode.jsonc` only loads it inside that project.
 
-**Remote TUIs** (`opencode --server …` from another machine) also need the package in
-that machine's `~/.config/opencode/cli.json`. As of OpenCode 2.2.0, a remote TUI only loads
-a server plugin's panel if the package is already installed locally; it does not download
-it. Listing it in `cli.json` installs it there:
+**2. On every other machine you connect a TUI from**, also add it to
+`~/.config/opencode/cli.json`:
 
 ```json
 {
@@ -33,7 +41,13 @@ it. Listing it in `cli.json` installs it there:
 }
 ```
 
-The entry matches the plugin by ID, so it never loads a second copy beside the server's.
+As of OpenCode 2.2.0, a TUI connected to a remote server only shows a server plugin's
+panel when the package is already installed on the TUI's own machine; it does not
+download it. Listing it in `cli.json` installs it there.
+
+Listing it in both files on one machine is safe: the entries resolve to a single copy.
+OpenCode installs npm plugins automatically; restart the TUI if `/switchboard` does not
+appear.
 
 ## Use
 
@@ -89,6 +103,10 @@ Running `opencode` in this directory loads the plugin from source through
 `.opencode/plugins/switchboard/`. The server part reloads on edit; a running TUI
 does not re-import the TUI part when only its source changes, so restart the TUI to
 test panel changes.
+
+If the published package is also installed globally, the source copy still wins inside
+this directory: plugins discovered under `.opencode/plugins/` load before configured
+packages, and the first copy of a plugin ID wins. Elsewhere, the published version loads.
 
 The published package exports a Solid-compiled `dist/tui.js` (`bun run build`, also
 run on pack), because OpenCode does not compile `.tsx` files inside `node_modules`.

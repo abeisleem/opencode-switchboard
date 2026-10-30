@@ -14,10 +14,13 @@
 - One npm package with three parts: `.` (server: storage + RPC), `./tui` (panel),
   `./rpc` (typed contract shared by both). The plugin `id` (`opencode-switchboard`)
   namespaces server storage and the RPC; changing it orphans saved user state.
-- `@opencode/plugin` is pinned to the OpenCode release we target (currently 2.2.0)
-  and provided by the host at runtime, as are `effect`, `solid-js`, and
-  `@opentui/*` (peer dependencies). Never bundle them. Other runtime dependencies
-  (Zod) are regular `dependencies` installed with the package.
+- `@opencode/plugin`, `effect`, `solid-js`, and `@opentui/*` are provided by the host
+  at runtime; OpenCode refuses to load `@opencode/plugin` from a plugin's own
+  `node_modules`. Declare them as optional `peerDependencies` and pin them in
+  `devDependencies` for type-checking (currently `@opencode/plugin` 2.2.0); never put
+  them in `dependencies` (that installed ~200 unused packages and broke installs under
+  `min-release-age`) and never bundle them. Only real runtime dependencies (Zod) go in
+  `dependencies`.
 - The TUI part ships as `dist/tui.js` (`scripts/build.ts`, run on pack): the host
   does not Solid-compile `.tsx` inside `node_modules`. Development loads source via
   `.opencode/plugins/switchboard/`. The server and RPC parts ship as TS source.
