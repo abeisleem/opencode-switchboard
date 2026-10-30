@@ -14,7 +14,7 @@ import {
 } from "./model"
 import { reconcileSelection, rowKey, type SelectionMemory } from "./selection"
 
-/** Mirrors the native tab rail: muted rows, a subtly raised row under the pointer or cursor, a bold current title. */
+/** Muted rows, a hover fill for non-current rows, and a bold current title on the bare surface. */
 export type Palette = {
   /** Titles of the hovered or cursor row and of the conversation being viewed. */
   text: string | RGBA
@@ -24,10 +24,8 @@ export type Palette = {
   detail: string | RGBA
   /** The panel surface, which overflowing titles fade into. */
   background: string | RGBA
-  /** The row under the mouse or keyboard cursor. Opaque, so titles can fade into it. */
+  /** A non-current row under the mouse. Opaque, so titles can fade into it. */
   hover: string | RGBA
-  /** The row of the conversation being viewed; themes often make it the same as `background`. */
-  selected: string | RGBA
   unread: string | RGBA
   attention: string | RGBA
   running: string | RGBA
@@ -373,13 +371,12 @@ export function InboxPanel(props: PanelProps) {
                   equals: (a, b) => a.index === b.index && JSON.stringify(a.row) === JSON.stringify(b.row),
                 })
                 const index = () => entry().index
-                // A memo, so a cursor move only re-renders the two rows whose highlight changes.
+                // Cursor and hover both brighten text and expose the close target.
                 const lit = createMemo(() => hovered() === key || (props.focused && cursor() === index()))
                 const current = () =>
                   key === `session:${props.current === undefined ? props.state.selected : props.current}`
-                // As in the native rail, the current row keeps its fill when hovered.
-                const fill = () =>
-                  current() ? props.colors.selected : lit() ? props.colors.hover : undefined
+                // The current conversation is bold only; other rows fill only under the mouse.
+                const fill = () => (!current() && hovered() === key ? props.colors.hover : undefined)
                 const background = () => fill() ?? props.colors.background
                 const hover = () => {
                   setHovered(key)
