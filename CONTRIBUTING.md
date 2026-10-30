@@ -18,13 +18,14 @@ bun install
 
 ## Run from source
 
-Run `opencode` in the repo. It loads the plugin from source through `.opencode/plugins/switchboard/`.
+Run `bun run dev` in the checkout. It starts `opencode` with the plugin loaded from source through
+`.opencode/plugins/switchboard/`.
 
+- Plain `opencode` also works, but only if your `~/.config/opencode/cli.json` does not list
+  `opencode-switchboard`. In the TUI, later plugin sources replace earlier ones, so a published copy listed
+  there replaces the source copy, even inside this repo. `bun run dev` leaves it out for that run only.
 - The server part reloads on edit. A running TUI does not re-import the panel when its source changes, so
   restart the TUI to test panel changes.
-- If the published package is also installed globally, the source copy still wins inside this directory:
-  plugins discovered under `.opencode/plugins/` load before configured packages, and the first copy of a
-  plugin ID wins. Elsewhere, the published version loads.
 
 `bun run demo` renders the panel with fixture data. It needs no server.
 

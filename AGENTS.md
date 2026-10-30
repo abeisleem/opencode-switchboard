@@ -38,8 +38,11 @@ gated check.
 
 - The TUI part ships as a Solid-compiled `dist/tui.js` (`scripts/build.ts`), because the host does not
   Solid-compile `.tsx` inside `node_modules`. The server and RPC parts ship as TypeScript source.
-- In this repo, OpenCode loads the plugin from source through `.opencode/plugins/switchboard/`. The server
-  part reloads on edit; a running TUI keeps the old panel code until it restarts.
+- Development loads source via `.opencode/plugins/switchboard/`; start it with `bun run dev`. In the TUI,
+  later plugin sources win (discovered `.opencode/plugins/`, then the server's list, then `cli.json`), so a
+  published `opencode-switchboard` in the global `cli.json` replaces the source copy even in this repo. Plain
+  `opencode` is fine only when `cli.json` does not list it.
+- The server part reloads on edit; a running TUI keeps the old panel code until it restarts.
 
 # Saved state
 
