@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.1.1 (2026-10-30)
 
 - The plugin uses OpenCode's own `@opencode/plugin` instead of installing a copy. It is now an optional peer
   dependency, so an install pulls in 2 packages instead of 218 and its dependencies no longer fail npm
