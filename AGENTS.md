@@ -7,6 +7,7 @@ OpenCode plugin, one npm package with three parts: `.` (server: storage + RPC), 
 | ---------- | --------------------------------------------------------------------------------------------------------------------- |
 | Install    | `bun install`                                                                                                         |
 | Typecheck  | `bun run typecheck`                                                                                                   |
+| Release sync tests | `bun run test:releases` |
 | Fast tests | `bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/palette.test.ts test/session-creation.test.tsx test/deletion.test.tsx` |
 | Format     | `bun run format`                                                                                                      |
 | Build      | `bun run build` (writes `dist/tui.js`; also runs on pack)                                                             |
@@ -75,6 +76,11 @@ https://opencode.ai/v2/docs/build/plugins/effect#publish.
 4. Run `bun run pack:dry-run` and check the file list: no tests, fixtures, artifacts, or design notes.
 5. Open the release PR. Only after it merges, tag `vX.Y.Z` on `main`.
 6. Confirm with the user before pushing the release tag or running `npm publish`. Both are outward-facing.
+7. After confirmation, push the tag before publishing. Run `gh auth status` first: `postpublish` dispatches
+   `.github/workflows/sync-releases.yml` through the GitHub CLI. The workflow also runs on tags and hourly.
+8. Verify npm exposes the version and GitHub has its release with matching changelog notes and `latest`.
+   If synchronization fails, retry `gh workflow run sync-releases.yml --ref main -f version=X.Y.Z`; do not
+   repeat a successful npm publish. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing) for recovery.
 
 # Planned
 
