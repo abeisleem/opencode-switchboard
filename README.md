@@ -162,14 +162,18 @@ reading it, but does not clear a session you marked unread.
 **`/switchboard` is missing right after you added the plugin.** OpenCode installs npm plugins automatically,
 which can take a moment. Restart the TUI.
 
-**npm refuses a new release because of `min-release-age`.** If your npm config sets `min-release-age`, a
-version published more recently than that window does not install. Exempt this package in your `.npmrc`:
+**`NpmInstallFailedError` with npm `min-release-age` set.** OpenCode 2.2 applies `min-release-age` to plugins
+but ignores `min-release-age-exclude` ([anomalyco/opencode#60567](https://github.com/anomalyco/opencode/issues/60567)),
+so a release newer than your window does not install. On each machine that shows the error, clear the cached
+copy and install it once with the window turned off, then restart the TUI:
 
-```ini
-min-release-age-exclude[]=opencode-switchboard
+```sh
+rm -rf ~/.cache/opencode/npm/opencode-switchboard@latest
+npm_config_min_release_age=0 opencode plugin add opencode-switchboard
 ```
 
-Only this package is exempt; its dependency (Zod) still follows your policy.
+OpenCode reuses that copy afterwards; your policy still applies to everything else. `plugin add` also lists
+the package in your global `opencode.json(c)`, as Install step 1 does.
 
 **The panel shows "Switchboard error".** Click the message to retry. The full error is appended to
 `opencode-switchboard-errors.log` in the TUI machine's temp directory (`$TMPDIR`, often `/tmp`). Please
