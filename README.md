@@ -90,9 +90,12 @@ palette.
 
 While the panel is open:
 
-- Pick a project or session in OpenCode's **Ctrl+O** menu. A new project starts empty; a saved project comes
+- Open a session from OpenCode's **Ctrl+O** menu or its session list (**Ctrl+X, then L**), and it is added to
+  its project.
+- Pick a project in the **Ctrl+O** menu to add the project. A new project starts empty; a saved project comes
   back with its sessions.
-- Open any session, and it is added to its project.
+
+These are OpenCode's default keys; yours may differ if you have rebound them.
 
 ### Read the panel
 
