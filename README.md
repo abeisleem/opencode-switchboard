@@ -19,8 +19,21 @@ project's `.opencode/opencode.jsonc`):
 }
 ```
 
-One entry loads both parts. The server part stores the switchboard; every TUI connected
-to that server (including remote `opencode --server …` clients) loads the panel.
+One entry loads both parts. The server part stores the switchboard, and a TUI running on
+the same machine as the server loads the panel.
+
+**Remote TUIs** (`opencode --server …` from another machine) also need the package in
+that machine's `~/.config/opencode/cli.json`. As of OpenCode 2.2.0, a remote TUI only loads
+a server plugin's panel if the package is already installed locally; it does not download
+it. Listing it in `cli.json` installs it there:
+
+```json
+{
+  "plugins": ["opencode-switchboard"]
+}
+```
+
+The entry matches the plugin by ID, so it never loads a second copy beside the server's.
 
 ## Use
 
