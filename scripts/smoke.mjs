@@ -201,9 +201,17 @@ try {
       // Use the native session list's two-press delete, not Switchboard's close-row action.
       // Tabs are off so only Switchboard can return to the most recently visited survivor.
       child.write("\x18l")
-      await wait((text) => text.includes("Search sessions"))
+      await wait((text) => text.includes("Sessions for project") && /delete\s+ctrl\+d/.test(text))
       child.write("Isolated panel smoke")
-      await wait((text) => !text.includes("Searching sessions") && text.includes("delete"))
+      await wait((text) => {
+        const dialog = text.slice(text.indexOf("Sessions for project"), text.indexOf("pin/unpin"))
+        // Wait for both the search input and its sole result, not the old unfiltered footer.
+        return (
+          /Isolated panel smoke[^]*Today[^]*Isolated panel smoke/.test(dialog) &&
+          !dialog.includes("Activate target") &&
+          !dialog.includes("Another session")
+        )
+      })
       child.write("\x04")
       await wait((text) => text.includes("again to confirm"))
       child.write("\x04")
