@@ -257,6 +257,16 @@ export default Plugin.define({
         if (root !== id && root === state().selected) return
         await act({ type: "select", sessionID: root, observed })
       } catch (cause) {
+        // The host navigates optimistically, before its create request commits.
+        // Retry on session.created instead of showing an error for that local draft.
+        if (
+          typeof cause === "object" &&
+          cause !== null &&
+          "_tag" in cause &&
+          cause._tag === "SessionNotFoundError" &&
+          ctx.data.session.get(id)
+        )
+          return
         report(cause)
       }
     }
@@ -437,6 +447,11 @@ export default Plugin.define({
     const stopRenames = ctx.data.on("session.renamed", () => {
       if (enabled) void refresh()
     })
+    const stopCreated = ctx.data.on("session.created", (event) => {
+      const route = ctx.ui.router.current()
+      if (enabled && route.type === "session" && route.sessionID === event.data.sessionID)
+        void visit(route.sessionID)
+    })
     const poll = () => {
       if (stopped) return
       if (enabled) void refresh()
@@ -451,6 +466,7 @@ export default Plugin.define({
       clearTimeout(autoOpen)
       stopEvents()
       stopRenames()
+      stopCreated()
       stopRoute()
       stopPanel()
       stopApp()
