@@ -162,7 +162,8 @@ export type PanelProps = {
   /** Whether the panel has keyboard focus; clicks while unfocused leave focus where it is. */
   focused: boolean
   act: (action: Action) => void
-  open: (session: Session, keepFocus: boolean) => void
+  /** Open a session; the host then focuses its conversation. */
+  open: (session: Session) => void
   refresh: () => void
   close: () => void
   help: () => void
@@ -291,12 +292,12 @@ export function InboxPanel(props: PanelProps) {
     if (row) setRequested({ key: rowKey(row) })
     remember()
   }
-  function enter(keepFocus = false) {
+  function enter() {
     const row = current()
     // Capture intent before an action can mount another host panel.
     remember()
     if (row?.kind === "heading") props.act({ type: "collapse", key: row.key })
-    if (row?.kind === "session") props.open(row.session, keepFocus)
+    if (row?.kind === "session") props.open(row.session)
   }
   props.keys?.({
     next: () => step(1),
@@ -421,10 +422,9 @@ export function InboxPanel(props: PanelProps) {
                     }}
                     onMouseDown={(event) => {
                       // The host focuses the panel on mouse down; an unfocused click acts without stealing focus.
-                      const keepFocus = !props.focused
-                      if (keepFocus) event.stopPropagation()
+                      if (!props.focused) event.stopPropagation()
                       setRequested({ key })
-                      enter(keepFocus)
+                      enter()
                     }}
                   >
                     {key.startsWith("heading:") ? (

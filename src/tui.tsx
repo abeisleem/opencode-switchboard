@@ -80,10 +80,15 @@ export default Plugin.define({
     // The mounted side panel's controls and the host's focus function for it.
     let controls: Controls | undefined
     let focusPanel: (() => void) | undefined
-    // An unfocused click opened a session: hand focus back to the conversation
-    // once the panel remounts beside it.
-    let keepConversationFocus = false
+    // A session was opened from the panel: hand focus to its conversation
+    // (the composer) once the route settles and the panel remounts beside it.
+    let focusConversation = false
 
+    function returnFocus() {
+      if (!focusConversation) return
+      focusConversation = false
+      ctx.keymap.dispatch("pane.focus.left")
+    }
     function report(cause: unknown) {
       logError("action", cause)
       if (stopped) return
@@ -114,7 +119,7 @@ export default Plugin.define({
         mirrored = next.selected
         mirroredHome = destination.type === "home"
         ctx.ui.router.navigate(destination)
-      } else keepConversationFocus = false
+      }
       showPanel()
     }
     async function act(action: Action) {
@@ -178,7 +183,7 @@ export default Plugin.define({
       const origin = ctx.ui.router.current()
       const alreadyOpen = enabled && ctx.ui.panel.current()?.name === PANEL
       enabled = true
-      keepConversationFocus = false
+      focusConversation = false
       if (alreadyOpen) {
         // Move the cursor synchronously, before the refresh, so the next keypress acts on it.
         focusPanel?.()
@@ -286,9 +291,13 @@ export default Plugin.define({
             focused={focused()}
             colors={colors()}
             act={(action) => void act(action)}
-            open={(session, keepFocus) => {
-              keepConversationFocus = keepFocus
-              void act({ type: "select", sessionID: session.id, observed: session.idle })
+            open={(session) => {
+              focusConversation = true
+              // A remounting panel returns focus itself (see the panel slot); when nothing
+              // remounts, e.g. the session was already shown, return it here.
+              void act({ type: "select", sessionID: session.id, observed: session.idle }).then(() =>
+                setTimeout(returnFocus, 0),
+              )
             }}
             refresh={() => void refresh()}
             close={close}
@@ -331,10 +340,8 @@ export default Plugin.define({
               if (focusPanel === input.focus) focusPanel = undefined
             })
             onMount(() => {
-              if (!keepConversationFocus) return
-              keepConversationFocus = false
               // The host focuses a newly mounted panel; return focus after it does.
-              setTimeout(() => ctx.keymap.dispatch("pane.focus.left"), 0)
+              if (focusConversation) setTimeout(returnFocus, 0)
             })
             return panel(
               () => input.focused,
