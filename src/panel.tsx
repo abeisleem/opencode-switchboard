@@ -162,6 +162,8 @@ export type PanelProps = {
   /** Whether the panel has keyboard focus; clicks while unfocused leave focus where it is. */
   focused: boolean
   act: (action: Action) => void
+  /** The conversation this client shows; null on the new-session screen. Defaults to the shared selection. */
+  current?: string | null
   /** Open a session; the host then focuses its conversation. */
   open: (session: Session) => void
   refresh: () => void
@@ -373,10 +375,11 @@ export function InboxPanel(props: PanelProps) {
                 const index = () => entry().index
                 // A memo, so a cursor move only re-renders the two rows whose highlight changes.
                 const lit = createMemo(() => hovered() === key || (props.focused && cursor() === index()))
-                const current = () => key === `session:${props.state.selected}`
-                // The hover fill wins over the current row's fill so the cursor stays visible on it.
+                const current = () =>
+                  key === `session:${props.current === undefined ? props.state.selected : props.current}`
+                // As in the native rail, the current row keeps its fill when hovered.
                 const fill = () =>
-                  lit() ? props.colors.hover : current() ? props.colors.selected : undefined
+                  current() ? props.colors.selected : lit() ? props.colors.hover : undefined
                 const background = () => fill() ?? props.colors.background
                 const hover = () => {
                   setHovered(key)

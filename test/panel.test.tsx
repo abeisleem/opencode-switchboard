@@ -120,6 +120,16 @@ test("the cursor and hovered rows get the theme's muted hover fill, keeping stat
       fg: palette.text,
       bold: true,
     })
+    // As in the native rail, hovering the current row keeps its selected fill.
+    const current = lineOf(app, "Inbox panel")
+    await app.mockMouse.moveTo(8, current)
+    await app.renderOnce()
+    expect(cell(app, 3, current)).toMatchObject({
+      char: "I",
+      fg: palette.text,
+      bg: palette.selected,
+      bold: true,
+    })
   } finally {
     await app.dispose()
   }
@@ -194,6 +204,19 @@ test("a highlighted overflowing title scrolls left after a pause, then returns t
     await app.renderOnce()
     await app.renderOnce()
     expect(app.captureCharFrame().split("\n")[y]!.slice(3, 23)).toBe("Review provider conf")
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("over the new-session screen no row is current", async () => {
+  const app = await testRender(() => <Demo current={null} />, { width: 26, height: 30 })
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    const y = lineOf(app, "Inbox panel")
+    expect(cell(app, 3, y)).toMatchObject({ char: "I", fg: palette.muted, bold: false })
+    expect(cell(app, 3, y).bg).not.toBe(palette.selected)
   } finally {
     await app.dispose()
   }

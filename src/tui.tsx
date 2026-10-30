@@ -2,13 +2,13 @@ import { Plugin } from "@opencode/plugin/tui"
 import { appendFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { RGBA } from "@opentui/core"
 import { createEffect, createMemo, createSignal, ErrorBoundary, on, onCleanup, onMount, Show } from "solid-js"
 import { Switchboard } from "./rpc"
 import { initialState, laterKey, projectOf, type Action, type Session, type State } from "./model"
 import { loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
-import { InboxPanel, tint, type Palette, type PanelProps } from "./panel"
+import { InboxPanel, type PanelProps } from "./panel"
+import { palette } from "./palette"
 import { createSelectionMemory, followRoute } from "./selection"
 
 /** The host's plugin boundary only toasts render crashes; keep the stack for diagnosis. */
@@ -66,6 +66,8 @@ export default Plugin.define({
       initial: { cursors: new Map([["inbox", createSelectionMemory()]]) },
     })
     const selectionMemory = local.cursors.get("inbox")!
+    // Per-machine and durable, so the native-tabs hint shows once, not on every open.
+    const [hints, setHints] = ctx.storage.store("hints", { initial: { nativeTabs: false } })
     const [loading, setLoading] = createSignal(false)
     let enabled = false
     let stopped = false
@@ -83,6 +85,9 @@ export default Plugin.define({
     // A session was opened from the panel: hand focus to its conversation
     // (the composer) once the route settles and the panel remounts beside it.
     let focusConversation = false
+    // Whether the fullscreen switchboard covers the new-session screen, and that screen's project.
+    const [fromHome, setFromHome] = createSignal(false)
+    let homeLocation: LocationProject | undefined
 
     function returnFocus() {
       if (!focusConversation) return
@@ -95,7 +100,19 @@ export default Plugin.define({
       setError(cause instanceof Error ? cause.message : String(cause))
     }
     function showPanel() {
-      if (!ctx.ui.panel.open(PANEL)) ctx.ui.router.navigate({ type: "plugin", name: "switchboard" })
+      if (ctx.ui.panel.open(PANEL)) return
+      // No side panel here (e.g. the new-session screen): show the switchboard fullscreen.
+      const route = ctx.ui.router.current()
+      if (route.type === "plugin") return
+      setFromHome(route.type === "home")
+      homeLocation = route.type === "home" ? locationProject(ctx.location) : undefined
+      ctx.ui.router.navigate({ type: "plugin", name: "switchboard" })
+    }
+    /** The conversation this client shows: none on, or fullscreen over, the new-session screen. */
+    function viewing() {
+      const route = ctx.ui.router.current()
+      if (route.type === "home" || (route.type === "plugin" && fromHome())) return null
+      return state().selected
     }
     function accept(next: State) {
       // Revisions only grow; an equal one is the state already shown (e.g. a duplicate snapshot).
@@ -170,6 +187,11 @@ export default Plugin.define({
     /** Unfold whatever hides the current conversation's row, then put the cursor on it. */
     async function revealCurrent() {
       const route = ctx.ui.router.current()
+      // Over the new-session screen, no session is current: start on its project instead.
+      if (viewing() === null && route.type !== "session") {
+        if (homeLocation) await openLocationProject(homeLocation)
+        return
+      }
       const id = route.type === "session" ? ctx.data.session.root(route.sessionID) : state().selected
       if (!id) return
       const project = projectOf(state(), id)
@@ -189,16 +211,30 @@ export default Plugin.define({
         focusPanel?.()
         void revealCurrent()
       } else showPanel()
+      suggestDisablingTabs()
       await refresh()
       // First use: adopt the current conversation's project rather than every recent one.
       if (!Object.keys(state().projects).length && origin.type === "session") await visit(origin.sessionID)
       await revealCurrent()
     }
+    /** The switchboard is meant to replace the native tabs; say once how to turn them off. */
+    function suggestDisablingTabs() {
+      if (hints.nativeTabs || !ctx.ui.tabs.enabled()) return
+      void setHints((draft) => {
+        draft.nativeTabs = true
+      })
+      ctx.ui.toast.show({
+        variant: "info",
+        title: "Switchboard replaces session tabs",
+        message: 'To hide the native tabs, set "tabs": { "mode": "off" } in ~/.config/opencode/cli.json.',
+        duration: 10_000,
+      })
+    }
     function close() {
       enabled = false
       ctx.ui.panel.close()
       if (ctx.ui.router.current().type === "plugin") {
-        const selected = state().selected
+        const selected = viewing()
         ctx.ui.router.navigate(selected ? { type: "session", sessionID: selected } : { type: "home" })
       }
     }
@@ -249,28 +285,8 @@ export default Plugin.define({
           "All location attention reads are current.",
       })
     function panel(focused: () => boolean, surface: () => "panel" | "fullscreen" = () => "fullscreen") {
-      // Side panels sit on the raised surface; fullscreen uses the base background.
-      const background = () =>
-        surface() === "panel" ? ctx.theme.background.raised.base : ctx.theme.background.base
       // Built once per theme or surface change: rows read the palette on every update.
-      const colors = createMemo((): Palette => {
-        const base = background()
-        // The native rail's row fills, flattened onto the surface (as its `pulseBackground`) so titles fade into them.
-        // A transparent fill stays the bare surface, which is itself transparent in the system theme.
-        const flatten = (fill: RGBA) => (fill.a === 0 ? base : tint(base, fill, fill.a))
-        return {
-          text: ctx.theme.text.base,
-          muted: ctx.theme.text.muted,
-          detail: tint(ctx.theme.text.muted, base, 0.35),
-          background: base,
-          hover: flatten(ctx.theme.background.raised.high),
-          selected: flatten(ctx.theme.background.action.primary.selected),
-          unread: ctx.theme.hue.accent[200],
-          attention: ctx.theme.hue.accent[200],
-          running: ctx.theme.hue.interactive[200],
-          error: ctx.theme.text.feedback.error.base,
-        }
-      })
+      const colors = createMemo(() => palette(ctx.theme, surface()))
       return (
         <ErrorBoundary
           fallback={(cause, reset) => {
@@ -289,6 +305,7 @@ export default Plugin.define({
             error={error() || refreshError()}
             loading={loading()}
             focused={focused()}
+            current={viewing()}
             colors={colors()}
             act={(action) => void act(action)}
             open={(session) => {
