@@ -14,7 +14,7 @@ import {
 } from "./model"
 import { reconcileSelection, rowKey, type SelectionMemory } from "./selection"
 
-/** Muted rows, a hover fill for non-current rows, and a bold current title on the bare surface. */
+/** Muted rows, matching hover/keyboard fills, and a bold current title on the bare surface. */
 export type Palette = {
   /** Titles of the hovered or cursor row and of the conversation being viewed. */
   text: string | RGBA
@@ -24,7 +24,7 @@ export type Palette = {
   detail: string | RGBA
   /** The panel surface, which overflowing titles fade into. */
   background: string | RGBA
-  /** A non-current row under the mouse. Opaque, so titles can fade into it. */
+  /** A non-current hovered or keyboard-selected row. Opaque, so titles can fade into it. */
   hover: string | RGBA
   unread: string | RGBA
   attention: string | RGBA
@@ -188,6 +188,7 @@ export function InboxPanel(props: PanelProps) {
   if (props.selectionMemory) props.selectionMemory.owner = owner
   const [requested, setRequested] = createSignal<{ key: string }>()
   const [hovered, setHovered] = createSignal<string>()
+  const [keyboardHighlight, setKeyboardHighlight] = createSignal(false)
   let scroll: ScrollBoxRenderable | undefined
   const items = createMemo(() => rows(props.sessions, props.state))
   const selection = createMemo<{
@@ -287,6 +288,7 @@ export function InboxPanel(props: PanelProps) {
     remember()
   })
   function step(amount: number) {
+    setKeyboardHighlight(true)
     setHovered(undefined)
     const row = items()[Math.max(0, Math.min(items().length - 1, cursor() + amount))]
     if (row) setRequested({ key: rowKey(row) })
@@ -375,10 +377,14 @@ export function InboxPanel(props: PanelProps) {
                 const lit = createMemo(() => hovered() === key || (props.focused && cursor() === index()))
                 const current = () =>
                   key === `session:${props.current === undefined ? props.state.selected : props.current}`
-                // The current conversation is bold only; other rows fill only under the mouse.
-                const fill = () => (!current() && hovered() === key ? props.colors.hover : undefined)
+                // Mouse movement takes over from keyboard navigation; the current row stays bold only.
+                const fill = () =>
+                  !current() && lit() && (keyboardHighlight() || hovered() === key)
+                    ? props.colors.hover
+                    : undefined
                 const background = () => fill() ?? props.colors.background
                 const hover = () => {
+                  setKeyboardHighlight(false)
                   setHovered(key)
                   // As in native lists, pointing at a row in the focused panel moves the cursor there.
                   if (props.focused && selection().key !== key) setRequested({ key })
@@ -418,6 +424,7 @@ export function InboxPanel(props: PanelProps) {
                     onMouseMove={hover}
                     onMouseOver={hover}
                     onMouseOut={() => {
+                      setKeyboardHighlight(false)
                       if (hovered() === key) setHovered(undefined)
                     }}
                     onMouseDown={(event) => {

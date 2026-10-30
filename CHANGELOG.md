@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 (2026-10-30)
+
+- Up/Down and j/k highlight the entire non-current row, including its detail line and close-button padding,
+  while the panel has keyboard focus. Mouse hover keeps its existing behavior, and the current session remains
+  bold without a row background.
+
 ## 0.1.3 (2026-10-30)
 
 - Starting a TUI with `--server` and `--session`, or reopening the panel, synchronizes the current-session
