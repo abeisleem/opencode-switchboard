@@ -350,8 +350,8 @@ export function InboxPanel(props: PanelProps) {
     return ["", props.colors.muted]
   }
   return (
-    <box flexDirection="column" flexGrow={1} minHeight={0} paddingRight={1}>
-      <scrollbox ref={scroll} flexGrow={1} minHeight={0} paddingTop={1}>
+    <box flexDirection="column" flexGrow={1} minHeight={0} paddingRight={1} paddingTop={1}>
+      <scrollbox ref={scroll} flexGrow={1} minHeight={0}>
         <Show
           when={items().length}
           fallback={

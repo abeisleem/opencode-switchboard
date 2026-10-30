@@ -9,7 +9,9 @@ test("panel mirrors the native rail: left indicators, no header, footer help onl
   try {
     await app.renderOnce()
     const screen = app.captureCharFrame()
-    expect(screen.split("\n")[0]).toContain("▾ api-server")
+    // One blank row of padding sits above the first project.
+    expect(screen.split("\n")[0]!.trim()).toBe("")
+    expect(screen.split("\n")[1]).toContain("▾ api-server")
     for (const removed of ["Needs you", "Search", "[f]", "[p]", ">", "Enter fold"])
       expect(screen).not.toContain(removed)
     expect(screen).toMatch(/ • Diagnose reconnect/)
@@ -94,9 +96,9 @@ test("the cursor and hovered rows get the theme's muted hover fill, keeping stat
     await app.renderOnce()
     await app.renderOnce()
     // The keyboard cursor starts on the first project heading.
-    expect(cell(app, 3, 0)).toMatchObject({ char: "a", fg: palette.text, bg: palette.hover, bold: false })
-    expect(cell(app, 24, 0).bg).toBe(palette.hover)
-    expect(cell(app, 25, 0).bg).not.toBe(palette.hover)
+    expect(cell(app, 3, 1)).toMatchObject({ char: "a", fg: palette.text, bg: palette.hover, bold: false })
+    expect(cell(app, 24, 1).bg).toBe(palette.hover)
+    expect(cell(app, 25, 1).bg).not.toBe(palette.hover)
     const y = lineOf(app, "Review provider")
     expect(cell(app, 3, y)).toMatchObject({ fg: palette.muted, bold: false })
     await app.mockMouse.moveTo(8, y)
@@ -110,8 +112,8 @@ test("the cursor and hovered rows get the theme's muted hover fill, keeping stat
       rgbToHex(tint(RGBA.fromHex(palette.text), RGBA.fromHex(palette.hover), 0.92)),
     )
     // Hovering moved the cursor too, so the heading is no longer lit.
-    expect(cell(app, 3, 0)).toMatchObject({ fg: palette.muted, bold: false })
-    expect(cell(app, 3, 0).bg).not.toBe(palette.hover)
+    expect(cell(app, 3, 1)).toMatchObject({ fg: palette.muted, bold: false })
+    expect(cell(app, 3, 1).bg).not.toBe(palette.hover)
     // The conversation being viewed keeps a bold title, as the native rail's selected tab.
     expect(cell(app, 3, lineOf(app, "Inbox panel"))).toMatchObject({
       char: "I",
