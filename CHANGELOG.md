@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 (2026-10-30)
+
+- Deleting the current session from OpenCode's session list removes its panel row and returns to the most
+  recently visited open session. Deleting a background session leaves the current conversation in place.
+- Closing the current row or project falls back to another open session even when none is in recent history.
+
 ## 0.1.4 (2026-10-30)
 
 - Sessions opened before their creation finishes are added to the panel when creation completes. This also

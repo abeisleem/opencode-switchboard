@@ -11,7 +11,8 @@ export default Plugin.define({
       // A new project starts empty; a saved one restores its own membership.
       if (action.type === "project-open")
         admission = { project: action.project, name: action.name, sessions: [] }
-      if ("sessionID" in action) {
+      // Removing a row also handles native deletion, after the session no longer exists.
+      if ("sessionID" in action && action.type !== "session-remove") {
         const session = await ctx.session.get({ sessionID: action.sessionID })
         if (session.parentID) throw new Error("Switchboard actions require a root session")
         if (

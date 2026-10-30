@@ -15,7 +15,7 @@ try {
   run("sh", ["-c", "npm init -y >/dev/null && npm install --no-audit --no-fund --loglevel=error ./*.tgz"], {
     cwd: root,
   })
-  for (const args of [[], ["session"]])
+  for (const args of [[], ["session"], ["session", "delete"]])
     run("node", [`${repo}/scripts/smoke.mjs`, ...args], {
       env: { ...process.env, SWITCHBOARD_PLUGIN: `${root}/node_modules/opencode-switchboard` },
     })

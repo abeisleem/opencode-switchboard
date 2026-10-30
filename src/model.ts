@@ -117,8 +117,11 @@ export function reduce(state: State, action: Action, admission?: Admission): Sta
         .filter((project) => project.open)
         .flatMap((project) => project.sessions),
     )
-    next.selected = next.recent.find((id) => id !== exclude && open.has(id)) ?? null
-    if (next.selected) next.recent = [next.selected, ...next.recent.filter((id) => id !== next.selected)]
+    open.delete(exclude)
+    // History is bounded; an open session can outlive its entry in recent.
+    next.selected = next.recent.find((id) => open.has(id)) ?? open.values().next().value ?? null
+    if (next.selected)
+      next.recent = [next.selected, ...next.recent.filter((id) => id !== next.selected)].slice(0, 50)
     next.navigation++
   }
   if (action.type === "project-open") {
