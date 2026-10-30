@@ -83,6 +83,8 @@ Run `/switchboard`, press **Ctrl+X, then I** (`<leader>i`), or pick **Open switc
 palette.
 
 - The first time you open it from a conversation, it adds that conversation's project.
+- Starting with `--session` or reopening the panel adopts the conversation you are actually viewing,
+  including when a different session was selected previously.
 - Pressing it again while the panel is open moves the cursor to the conversation you are viewing.
 - **Esc** closes the panel. Until you open it again, the switchboard does not track the sessions you open.
 
@@ -125,6 +127,7 @@ Unread is independent of placement: mark a session unread to come back to it, wh
 | `u`       | Toggle read/unread                                     |
 | `a` / `l` | Move to Active / Later                                 |
 | `x`       | Close session or project (keeps its saved state)       |
+| Ctrl+X, then W | Close the current conversation's row from either pane |
 | `r`       | Refresh                                                |
 | `d`       | Show details of the last refresh, including any errors |
 | `?`       | Help                                                   |
@@ -138,6 +141,10 @@ With the mouse:
 
 Opening a session, with Enter or a click, moves focus to its conversation so you can type right away. Press
 **Ctrl+X, then I** to return to the panel.
+
+**Ctrl+X, then W** (`<leader>w`) closes the conversation you are viewing, independently of the panel cursor,
+and returns to another open session. It is active while Switchboard is open; closing the panel restores the
+native shortcut behavior. Rebind it with `opencode-switchboard.close-current` in `cli.json`.
 
 **The switchboard never deletes, archives, or stops sessions.** Closing removes a session from the panel;
 opening it again brings it back. A closed project keeps its sessions for when you reopen it. Delete sessions

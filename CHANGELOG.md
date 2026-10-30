@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 (2026-10-30)
+
+- Starting a TUI with `--server` and `--session`, or reopening the panel, synchronizes the current-session
+  marker and working-set selection with the displayed conversation instead of the previously saved selection.
+- Ctrl+X, then W (`<leader>w`) closes the current conversation's Switchboard row from either pane and returns
+  to another open session. It uses the viewed session rather than the panel cursor and never deletes the session.
+
 ## 0.1.2 (2026-10-30)
 
 - The current session is bold without a row background, even while hovered. Other rows highlight only on

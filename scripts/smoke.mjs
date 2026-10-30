@@ -1,9 +1,12 @@
 // Exercise the installed CLI in a real PTY against private config/state/database.
 import pty from "@lydell/node-pty"
 import xterm from "@xterm/headless"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
+import { openSync, closeSync } from "node:fs"
+import { createServer } from "node:net"
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { OpenCode } from "@opencode/client"
 
 const repo = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "")
 // SWITCHBOARD_PLUGIN points the run at an installed copy (see smoke-package.mjs).
@@ -18,7 +21,8 @@ const scoped = process.argv.includes("scoped")
 const shortcut = process.argv.includes("key")
 // Opt-in native-delete lifecycle coverage: node scripts/smoke.mjs session delete
 const deletion = process.argv.includes("delete")
-const activation = process.argv.includes("activate") || deletion
+const navigation = process.argv.includes("navigation")
+const activation = process.argv.includes("activate") || deletion || navigation
 let clientPlugin = plugin
 if (bundled) {
   clientPlugin = `${root}/workstation-client`
@@ -41,7 +45,7 @@ if (bundled) {
 } else {
   await writeFile(`${directory}/.opencode/opencode.json`, JSON.stringify({ plugins: [plugin] }))
 }
-const wide = process.argv.includes("session") || deletion
+const wide = process.argv.includes("session") || deletion || navigation
 const cols = wide ? 150 : 100
 const terminal = new xterm.Terminal({ cols, rows: 38, allowProposedApi: true })
 const env = {
@@ -54,6 +58,9 @@ const env = {
   XDG_CACHE_HOME: `${root}/cache`,
   OPENCODE_DB: `${root}/test.db`,
   OPENCODE_CONFIG_CONTENT: "{}",
+  ...(navigation
+    ? { OPENCODE_PASSWORD: "switchboard-smoke", OPENCODE_SERVER_PASSWORD: "switchboard-smoke" }
+    : {}),
   OPENCODE_CLI_CONFIG_CONTENT: JSON.stringify({
     ...(scoped
       ? {}
@@ -61,50 +68,103 @@ const env = {
     highlights: false,
     animations: false,
     mouse: true,
-    ...(deletion ? { tabs: { mode: "off" } } : {}),
+    ...(deletion || navigation ? { tabs: { mode: "off" } } : {}),
   }),
 }
-let session
-if (wide) {
-  const result = JSON.parse(
-    execFileSync(
-      "opencode",
-      [
-        "api",
-        "--standalone",
-        "session.create",
-        "--data",
-        JSON.stringify({ title: "Isolated panel smoke", location: { directory } }),
-      ],
-      { cwd: directory, env, encoding: "utf8" },
-    ),
-  )
-  session = result.id ?? result.data?.id
-  if (!session) throw new Error("Private session creation did not return an ID")
-  if (activation) {
-    for (const title of ["Activate target", "Another session"]) {
-      execFileSync(
-        "opencode",
-        [
-          "api",
-          "--standalone",
-          "session.create",
-          "--data",
-          JSON.stringify({ title, location: { directory } }),
-        ],
-        { cwd: directory, env, encoding: "utf8" },
-      )
+let server
+let remote
+let client
+const headers = { authorization: `Basic ${Buffer.from("opencode:switchboard-smoke").toString("base64")}` }
+// A real separate server reproduces workstation --server/--session startup with existing saved state.
+if (navigation) {
+  const reservation = createServer()
+  await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve))
+  const port = reservation.address().port
+  await new Promise((resolve) => reservation.close(resolve))
+  remote = `http://127.0.0.1:${port}`
+  const log = openSync(`${root}/server.log`, "a")
+  server = spawn("opencode", ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+    cwd: directory,
+    env,
+    stdio: ["ignore", log, log],
+  })
+  closeSync(log)
+  process.on("exit", () => server.kill())
+  client = OpenCode.make({ baseUrl: remote, headers })
+  const deadline = Date.now() + 20_000
+  for (;;) {
+    try {
+      await client.server.info()
+      break
+    } catch (error) {
+      if (Date.now() >= deadline)
+        throw new Error(`Private server failed; see ${root}/server.log`, { cause: error })
+      await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
 }
-const child = pty.spawn("opencode", ["--standalone", ...(session ? ["--session", session] : []), directory], {
-  name: "xterm-256color",
-  cols,
-  rows: 38,
-  // Explicit directory must work even when the invoking shell is elsewhere.
-  cwd: scoped ? root : directory,
-  env,
-})
+async function create(title) {
+  return client
+    ? client.session.create({ title, location: { directory } })
+    : JSON.parse(
+        execFileSync(
+          "opencode",
+          [
+            "api",
+            "--standalone",
+            "session.create",
+            "--data",
+            JSON.stringify({ title, location: { directory } }),
+          ],
+          { cwd: directory, env, encoding: "utf8" },
+        ),
+      )
+}
+let session
+let previous
+if (wide) {
+  const result = await create("Isolated panel smoke")
+  session = result.id ?? result.data?.id
+  if (!session) throw new Error("Private session creation did not return an ID")
+  if (activation) {
+    for (const title of navigation ? ["Another session"] : ["Activate target", "Another session"]) {
+      const created = await create(title)
+      previous = created.id ?? created.data?.id
+    }
+  }
+}
+if (navigation) {
+  execFileSync(
+    "bun",
+    [
+      "-e",
+      `
+    import { OpenCode } from "@opencode/client"
+    import { Switchboard } from "./src/rpc"
+    const rpc = OpenCode.make({ baseUrl: ${JSON.stringify(remote)}, headers: ${JSON.stringify(headers)} }).rpc(Switchboard)
+    for (const sessionID of ${JSON.stringify([session, previous])})
+      await rpc.act({ type: "select", sessionID, observed: 0 }, { location: { directory: ${JSON.stringify(directory)} } })
+  `,
+    ],
+    { cwd: repo, env, stdio: "pipe" },
+  )
+}
+const child = pty.spawn(
+  "opencode",
+  [
+    ...(remote ? ["--server", remote] : ["--standalone"]),
+    ...(session ? ["--session", session] : []),
+    directory,
+  ],
+  {
+    name: "xterm-256color",
+    cols,
+    rows: 38,
+    // Explicit directory must work even when the invoking shell is elsewhere.
+    cwd: scoped ? root : directory,
+    env,
+  },
+)
 child.onData((data) => terminal.write(data))
 terminal.onData((data) => child.write(data))
 function screen() {
@@ -165,7 +225,24 @@ try {
   await wait((text) =>
     session ? /▾ project[^]*Isolated panel smoke/.test(text) : text.includes("No open projects"),
   )
-  if (activation) {
+  if (navigation) {
+    await wait(() => current("Isolated panel smoke") && !current("Another session"))
+    child.write("\x18\x1b[D") // Focus the conversation pane before closing its row.
+    await composerFocused("Isolated panel smoke")
+    child.write("\x18w")
+    await wait(() => rowOf("Isolated panel smoke") < 0 && current("Another session"))
+    await composerFocused("Another session")
+    if ((await client.session.get({ sessionID: session })).time.archived)
+      throw new Error("Closing the Switchboard row archived the session")
+    child.write("\x18i\x1b[A") // Put the panel cursor on the project, while viewing Another session.
+    child.write("\x18w")
+    await wait(
+      (text) =>
+        rowOf("Another session") < 0 && rowOf("Isolated panel smoke") < 0 && text.includes("▾ project"),
+    )
+    if ((await client.session.get({ sessionID: previous })).time.archived)
+      throw new Error("Closing the last Switchboard row archived the session")
+  } else if (activation) {
     const panel = (text, title) => new RegExp(`▾ project[^]*${title}`).test(text)
     // Ctrl+O adds a session to its project's list. Newest additions go first.
     for (const title of ["Activate target", "Another session"]) {
@@ -236,12 +313,17 @@ try {
     frame,
   )
   console.log(
-    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""})`,
+    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""})`,
   )
   passed = true
 } finally {
   child.kill()
   terminal.dispose()
+  if (server && server.exitCode === null) {
+    const exited = new Promise((resolve) => server.once("exit", resolve))
+    server.kill()
+    await exited
+  }
   if (passed) await rm(root, { recursive: true, force: true })
   else console.error("Private failure logs retained at", root)
 }

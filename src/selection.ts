@@ -19,8 +19,8 @@ export function followRoute(
 }
 
 /**
- * Whether a newly accepted shared state navigates this client. The first state a client accepts
- * only syncs it; following it would jump a freshly started TUI to the last selected session.
+ * Whether a newly accepted shared state navigates this client. The first state after activation
+ * only syncs it; following it would replace the displayed route with the last saved selection.
  */
 export function navigated(synced: boolean, previous: State, next: State) {
   return synced && next.navigation !== previous.navigation

@@ -75,7 +75,7 @@ export default Plugin.define({
     // Set when the inbox itself navigates home (e.g. after closing a project), so the
     // home screen it lands on does not count as choosing that project.
     let mirroredHome = false
-    // Set once this client has loaded the shared state, accepted or not; see `navigated`.
+    // Set once this activation has loaded shared state; see `navigated`.
     let synced = false
     let timer: ReturnType<typeof setTimeout> | undefined
     let membership = ""
@@ -113,6 +113,7 @@ export default Plugin.define({
     /** The conversation this client shows: none on, or fullscreen over, the new-session screen. */
     function viewing() {
       const route = ctx.ui.router.current()
+      if (route.type === "session") return ctx.data.session.root(route.sessionID)
       if (route.type === "home" || (route.type === "plugin" && fromHome())) return null
       return state().selected
     }
@@ -205,8 +206,8 @@ export default Plugin.define({
       reveal(`session:${id}`)
     }
     async function openInbox() {
-      const origin = ctx.ui.router.current()
       const alreadyOpen = enabled && ctx.ui.panel.current()?.name === PANEL
+      if (!enabled) synced = false
       enabled = true
       focusConversation = false
       if (alreadyOpen) {
@@ -216,9 +217,28 @@ export default Plugin.define({
       } else showPanel()
       suggestDisablingTabs()
       await refresh()
-      // First use: adopt the current conversation's project rather than every recent one.
-      if (!Object.keys(state().projects).length && origin.type === "session") await visit(origin.sessionID)
+      // Startup (--session) and reopening must adopt the displayed route, not the last saved selection.
+      const route = ctx.ui.router.current()
+      if (route.type === "session") {
+        const root = ctx.data.session.root(route.sessionID)
+        if (state().selected !== root || !projectOf(state(), root)) await visit(route.sessionID)
+      }
       await revealCurrent()
+    }
+    function canCloseCurrent() {
+      const id = viewing()
+      return Boolean(enabled && id && projectOf(state(), id))
+    }
+    async function closeCurrent() {
+      if (!canCloseCurrent()) return
+      const id = viewing()!
+      const route = ctx.ui.router.current()
+      // A route change may still be committing its visit when the shortcut is pressed.
+      if (state().selected !== id && route.type === "session") await visit(route.sessionID)
+      if (stopped || !enabled || viewing() !== id || state().selected !== id) return
+      focusConversation = true
+      await act({ type: "session-remove", sessionID: id })
+      setTimeout(returnFocus, 0)
     }
     /** The switchboard is meant to replace the native tabs; say once how to turn them off. */
     function suggestDisablingTabs() {
@@ -288,7 +308,7 @@ export default Plugin.define({
       ctx.ui.dialog.alert({
         title: "Switchboard controls",
         message:
-          "↑/↓ or j/k: select · Enter: open/fold\nu: read/unread · a: Active · l: Later\nx: close session/project — never delete\nr: refresh · d: refresh details · Esc: close panel\n\nCtrl+O opens a project or session in the switchboard.\nCtrl+X I focuses the switchboard on the current conversation.\n\n• unread · ⠋ running · ? question · ! approval\n× error · ~ workspace missing or cached attention\nBold: the current conversation\n\nClosed sessions return when you open them again.",
+          "↑/↓ or j/k: select · Enter: open/fold\nu: read/unread · a: Active · l: Later\nx: close session/project — never delete\nr: refresh · d: refresh details · Esc: close panel\n\nCtrl+O opens a project or session in the switchboard.\nCtrl+X I focuses the switchboard on the current conversation.\nCtrl+X W closes the current conversation's row from either pane.\n\n• unread · ⠋ running · ? question · ! approval\n× error · ~ workspace missing or cached attention\nBold: the current conversation\n\nClosed sessions return when you open them again.",
       })
     const diagnostics = () =>
       ctx.ui.dialog.alert({
@@ -438,8 +458,16 @@ export default Plugin.define({
           slash: { name: "switchboard" },
           run: openInbox,
         },
+        {
+          id: "opencode-switchboard.close-current",
+          title: "Close current switchboard session",
+          bind: "<leader>w",
+          palette: true,
+          enabled: canCloseCurrent,
+          run: closeCurrent,
+        },
       ],
-      bindings: ["opencode-switchboard.open"],
+      bindings: ["opencode-switchboard.open", "opencode-switchboard.close-current"],
     }))
     const stopEvents = rpc.events.on("changed", () => {
       if (enabled) void rpc.snapshot({}, options).then(accept).catch(report)
