@@ -4,6 +4,8 @@
 
 - The plugin uses OpenCode's own `@opencode/plugin` instead of installing a copy. It is now an optional peer
   dependency, so an install pulls in 2 packages instead of 218 and works under npm `min-release-age`.
+- Opening a session from the panel, with Enter or a click, moves focus to its conversation.
+- The panel has a row of space at the top, and its text is no longer selected when you drag across it.
 - Install docs cover TUIs connected to a remote server: list the package in `opencode.json(c)` on the server
   machine and in `cli.json` on the TUI machine.
 

@@ -121,6 +121,9 @@ With the mouse:
 - Hover a row to show its `✕`, and click it to close that session or project.
 - Click **? help** at the bottom for the key reference.
 
+Opening a session, with Enter or a click, moves focus to its conversation so you can type right away. Press
+**Ctrl+X, then I** to return to the panel.
+
 **The switchboard never deletes, archives, or stops sessions.** Closing removes a session from the panel;
 opening it again brings it back. A closed project keeps its sessions for when you reopen it. Delete sessions
 through OpenCode's native session list.
