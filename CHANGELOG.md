@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4 (2026-10-30)
+
+- Sessions opened before their creation finishes are added to the panel when creation completes. This also
+  adds their new project without a second navigation or a transient “Session not found” error.
+
 ## 0.1.3 (2026-10-30)
 
 - Collapsed project and Later headings use a vertically balanced running indicator.
