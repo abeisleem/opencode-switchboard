@@ -177,8 +177,7 @@ questions for a workspace, or the workspace no longer exists. Press `d` for deta
 
 ## Contributing
 
-Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and the
-release process.
+Bug reports and pull requests from forks are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

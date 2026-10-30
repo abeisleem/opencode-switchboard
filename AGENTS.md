@@ -56,19 +56,25 @@ gated check.
 The switchboard never deletes, archives, or stops sessions. Closing removes a row from the panel only;
 deletion belongs to OpenCode's native session list.
 
+# Git
+
+Changes reach `main` only through a pull request; direct pushes are rejected. Work on a branch, push it, and
+open a PR (`gh pr create`) for the maintainer to merge.
+
 # Releasing
 
 Follow https://opencode.ai/v2/docs/build/plugins#publish and, for Effect,
 https://opencode.ai/v2/docs/build/plugins/effect#publish.
 
-1. Bump the version for any user-visible change, and add the release's user-visible changes to
+1. On a branch, bump the version for any user-visible change, and add the release's user-visible changes to
    `CHANGELOG.md` with the release date.
 2. Run typecheck and the fast tests.
 3. Ask the user to approve the gated checks: the integration test, `smoke`, `smoke:client`, and
    `smoke:package` (packs the tarball, installs it with npm into a clean directory, and runs the real-TUI
    smoke against it).
 4. Run `bun run pack:dry-run` and check the file list: no tests, fixtures, artifacts, or design notes.
-5. Confirm with the user before `npm publish` or pushing a release tag. Both are outward-facing.
+5. Open the release PR. Only after it merges, tag `vX.Y.Z` on `main`.
+6. Confirm with the user before pushing the release tag or running `npm publish`. Both are outward-facing.
 
 # Planned
 

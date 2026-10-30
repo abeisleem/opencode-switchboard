@@ -6,6 +6,11 @@ to a remote server, and the steps to reproduce. If the panel showed "Switchboard
 
 Coding agents working in this repo follow [AGENTS.md](AGENTS.md).
 
+## How to contribute
+
+Fork the repo and make your change on a branch, with a regression test for a fix. Make sure the
+[fast checks](#checks) pass, then open a pull request against `main`. The maintainer reviews and merges.
+
 ## Setup
 
 Requires Bun 1.4 and OpenCode 2.2.0. The integration test and smoke runs start the `opencode` on your `PATH`.
@@ -77,6 +82,6 @@ Historical design notes are in [`docs/design`](docs/design).
 
 ## Releasing
 
-Maintainers follow the checklist in [AGENTS.md](AGENTS.md#releasing). In short: bump the version for any
-user-visible change, run the fast and slower checks above, confirm that `bun run pack:dry-run` lists no tests,
-fixtures, artifacts, or design notes, then publish.
+Bump the version and update `CHANGELOG.md` in a pull request. After it merges, tag `vX.Y.Z` on `main`, push
+the tag, publish to npm, and create the GitHub release. The full checklist is in
+[AGENTS.md](AGENTS.md#releasing).
