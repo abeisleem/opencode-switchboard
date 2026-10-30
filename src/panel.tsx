@@ -132,7 +132,12 @@ function FadeText(props: {
       overflow="hidden"
       onSizeChange={() => setWidth(box?.width ?? 0)}
     >
-      <text fg={props.fg} wrapMode="none" attributes={props.bold ? TextAttributes.BOLD : undefined}>
+      <text
+        selectable={false}
+        fg={props.fg}
+        wrapMode="none"
+        attributes={props.bold ? TextAttributes.BOLD : undefined}
+      >
         <Show when={visible().overflows && width() > FADE_WIDTH} fallback={props.text}>
           <Index each={lead()}>
             {(part, index) => <span style={{ fg: leadFades()[index] }}>{part()}</span>}
@@ -346,11 +351,11 @@ export function InboxPanel(props: PanelProps) {
   }
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0} paddingRight={1}>
-      <scrollbox ref={scroll} flexGrow={1} minHeight={0}>
+      <scrollbox ref={scroll} flexGrow={1} minHeight={0} paddingTop={1}>
         <Show
           when={items().length}
           fallback={
-            <text fg={props.colors.muted} paddingLeft={3}>
+            <text selectable={false} fg={props.colors.muted} paddingLeft={3}>
               {props.loading ? "Loading…" : "No open projects. Open one with Ctrl+O."}
             </text>
           }
@@ -385,6 +390,7 @@ export function InboxPanel(props: PanelProps) {
                  */
                 const close = (run: () => void) => (
                   <text
+                    selectable={false}
                     marginLeft={1}
                     width={1}
                     flexShrink={0}
@@ -423,7 +429,12 @@ export function InboxPanel(props: PanelProps) {
                   >
                     {key.startsWith("heading:") ? (
                       <box flexDirection="row" height={1} paddingLeft={1 + heading().depth * 2}>
-                        <text width={2} flexShrink={0} fg={lit() ? props.colors.text : props.colors.muted}>
+                        <text
+                          selectable={false}
+                          width={2}
+                          flexShrink={0}
+                          fg={lit() ? props.colors.text : props.colors.muted}
+                        >
                           {heading().closed ? "▸ " : "▾ "}
                         </text>
                         <FadeText
@@ -433,7 +444,9 @@ export function InboxPanel(props: PanelProps) {
                           scroll={lit()}
                         />
                         <Show when={heading().badges}>
-                          <text fg={lit() ? props.colors.text : props.colors.muted}>{heading().badges}</text>
+                          <text selectable={false} fg={lit() ? props.colors.text : props.colors.muted}>
+                            {heading().badges}
+                          </text>
                         </Show>
                         {heading().depth === 0
                           ? close(() => props.act({ type: "project-close", project: heading().key }))
@@ -444,6 +457,7 @@ export function InboxPanel(props: PanelProps) {
                         <box flexDirection="row" height={1}>
                           {/* Indicators keep their status colors on the hover fill. */}
                           <text
+                            selectable={false}
                             width={3 + indent()}
                             flexShrink={0}
                             fg={indicator(session())[1]}
@@ -480,6 +494,7 @@ export function InboxPanel(props: PanelProps) {
       </scrollbox>
       <box height={1} flexShrink={0} flexDirection="row" paddingLeft={1}>
         <text
+          selectable={false}
           flexGrow={1}
           minWidth={0}
           wrapMode="none"
@@ -488,7 +503,7 @@ export function InboxPanel(props: PanelProps) {
         >
           {props.error ? `! ${props.error}` : ""}
         </text>
-        <text onMouseDown={props.help}>
+        <text selectable={false} onMouseDown={props.help}>
           <span style={{ fg: props.colors.muted }}>?</span>
           <span style={{ fg: props.colors.text }}> help</span>
         </text>
