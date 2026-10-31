@@ -2,6 +2,10 @@
 
 ## 0.1.4 (unreleased)
 
+- The help dialog (`?`) lists one panel key per line in an aligned column, styled like OpenCode's command
+  palette, and shows how to open the switchboard and switch panes.
+- After a Switchboard dialog closes, OpenCode commands that move focus work again. Previously Ctrl+X, then ↓
+  opened the terminal picker and focus jumped straight back to the panel.
 - Session and group indicators update as soon as OpenCode reports a change, as in its native tabs: spinners
   start when a prompt is sent, and approval, question, error, and unread marks appear and clear immediately.
   Previously they could lag by up to 15 seconds, until the panel's next refresh.
