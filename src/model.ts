@@ -236,9 +236,10 @@ export function rows(sessions: Session[], state: State): Row[] {
         kind: "heading",
         key: laterKey(project),
         closed: folded,
-        title: folded ? `Later (${later.length})` : "Later",
+        title: folded ? `Later · ${later.length}` : "Later",
         depth: 1,
-        badges: folded ? badges(later, state) : [],
+        // Parked work stays quiet; a folded project's badges still count it.
+        badges: [],
       })
       if (!folded) result.push(...later.map((session): Row => ({ kind: "session", session, depth: 2 })))
       return result
