@@ -87,6 +87,9 @@ async function harness(ids?: string[]) {
         family: () => [],
         status: () => "idle",
         pending: { list: () => [] },
+        permission: { list: () => undefined },
+        form: { list: () => undefined },
+        get: () => undefined,
       },
       on: (type: string, listener: (event: { data: { sessionID: string } }) => void) => {
         listeners.set(type, listener)

@@ -82,6 +82,8 @@ async function fixture(projectID: string) {
         family: () => [],
         status: () => "idle",
         pending: { list: () => [] },
+        permission: { list: () => undefined },
+        form: { list: () => undefined },
       },
       project: { get: () => undefined },
     },
