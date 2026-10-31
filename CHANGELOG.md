@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.4 (unreleased)
+## 0.1.4 (2026-10-31)
 
 - Session and project indicators update as soon as OpenCode reports a change, as in its native tabs. Spinners,
   approval, question, error, and unread marks no longer lag by up to 15 seconds.
