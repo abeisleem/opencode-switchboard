@@ -2,6 +2,10 @@
 
 ## 0.1.4 (2026-10-30)
 
+- Row highlights reach the panel's available right edge, with the padded space after the close control kept
+  inside the highlight.
+- Collapsed projects and Later groups use the same animated spinner, running color, and animation timing as
+  session rows. The spinner and count are aligned in a single-line heading.
 - Up/Down and j/k highlight the entire non-current row, including its detail line and close-button padding,
   while the panel has keyboard focus. Mouse hover keeps its existing behavior, and the current session remains
   bold without a row background.

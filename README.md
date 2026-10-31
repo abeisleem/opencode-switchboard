@@ -114,7 +114,8 @@ name on a second line.
 | `•`       | Unread: finished since you last looked, or marked unread                           |
 | `~`       | Approvals and questions for this workspace could not be read; press `d` for detail |
 
-A folded project or Later heading sums up what it hides: `? 2` waiting on you, `⠿ 1` running, `• 3` unread.
+A folded project or Later heading sums up what it hides: `? 2` waiting on you, a spinner and count for running
+or queued sessions, and `• 3` unread. Group and session spinners use the same animation and running color.
 
 Unread is independent of placement: mark a session unread to come back to it, whether it is Active or Later.
 

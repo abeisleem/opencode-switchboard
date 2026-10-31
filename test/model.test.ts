@@ -52,19 +52,31 @@ test("a project containing only Active sessions has no redundant subgroup", () =
   expect(result[1]).toMatchObject({ kind: "session", depth: 1 })
 })
 
-test("collapsed headings use the centered running badge alongside attention and unread counts", () => {
+test("collapsed headings expose activity counts alongside attention and unread counts", () => {
   const sessions = [
     { ...session, id: "a", running: true, status: "Running" as const, idle: 0 },
     { ...session, status: "Question" as const },
   ]
   let state = reduce(openState(), { type: "collapse", key: "p" })
-  expect(rows(sessions, state)[0]).toMatchObject({ badges: "? 1  ⠶ 1  • 1" })
+  const badges = [
+    { kind: "attention", count: 1 },
+    { kind: "running", count: 1 },
+    { kind: "unread", count: 1 },
+  ]
+  expect(rows(sessions, state)[0]).toMatchObject({ badges })
   state = reduce(state, { type: "collapse", key: "p" })
-  expect(rows(sessions, state)[0]).toMatchObject({ badges: "" })
+  expect(rows(sessions, state)[0]).toMatchObject({ badges: [] })
   for (const item of sessions)
     state = reduce(state, { type: "place", sessionID: item.id, placement: "later" })
   state = reduce(state, { type: "collapse", key: laterKey("p") })
-  expect(rows(sessions, state)[1]).toMatchObject({ title: "Later (2)", badges: "? 1  ⠶ 1  • 1" })
+  expect(rows(sessions, state)[1]).toMatchObject({ title: "Later (2)", badges })
+})
+
+test("collapsed groups count queued sessions as activity like session-row spinners", () => {
+  const state = reduce(openState(), { type: "collapse", key: "p" })
+  expect(rows([{ ...session, running: false, status: "Queued", idle: 0 }], state)[0]).toMatchObject({
+    badges: [{ kind: "running", count: 1 }],
+  })
 })
 
 test("invalid persisted state fails visibly rather than resetting user organization", async () => {
