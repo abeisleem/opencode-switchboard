@@ -485,6 +485,7 @@ test("native session renames refresh mounted rows without waiting for the poll",
         listeners.set(type, listener)
         return () => listeners.delete(type)
       },
+      session: { family: () => [], status: () => "idle", pending: { list: () => [] } },
     },
     storage: {
       memory: (_key: string, options: { initial: unknown }) => [options.initial, noop],

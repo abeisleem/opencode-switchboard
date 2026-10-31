@@ -82,7 +82,12 @@ async function harness(ids?: string[]) {
       form: { list: async () => ({ data: [] }) },
     },
     data: {
-      session: { root: (id: string) => id },
+      session: {
+        root: (id: string) => id,
+        family: () => [],
+        status: () => "idle",
+        pending: { list: () => [] },
+      },
       on: (type: string, listener: (event: { data: { sessionID: string } }) => void) => {
         listeners.set(type, listener)
         return () => listeners.delete(type)

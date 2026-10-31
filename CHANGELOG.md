@@ -2,6 +2,8 @@
 
 ## 0.1.4 (unreleased)
 
+- Session and group spinners start as soon as a prompt is sent and stop when the run ends, as in OpenCode's
+  native tabs. Previously they could lag by up to 15 seconds, until the panel's next refresh.
 - Row highlights reach the panel's available right edge, with the padded space after the close control kept
   inside the highlight.
 - Collapsed projects and Later groups use the same animated spinner, running color, and animation timing as

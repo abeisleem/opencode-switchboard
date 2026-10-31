@@ -2,10 +2,20 @@ import { Plugin } from "@opencode/plugin/tui"
 import { appendFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createEffect, createMemo, createSignal, ErrorBoundary, on, onCleanup, onMount, Show } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  ErrorBoundary,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js"
 import { Switchboard } from "./rpc"
 import { initialState, laterKey, projectOf, type Action, type Session, type State } from "./model"
-import { loadCatalog } from "./catalog"
+import { liveRunning, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
 import { InboxPanel, type PanelProps } from "./panel"
 import { palette } from "./palette"
@@ -90,6 +100,29 @@ export default Plugin.define({
     // Whether the fullscreen switchboard covers the new-session screen, and that screen's project.
     const [fromHome, setFromHome] = createSignal(false)
     let homeLocation: LocationProject | undefined
+    // Rows take running state from OpenCode's live session store, as the native tabs do; see `liveRunning`.
+    const live = createRoot((dispose) => {
+      const shown = createMemo(
+        () =>
+          sessions().map((session) => {
+            const running = liveRunning(ctx.data.session, session)
+            return running === session.running ? session : { ...session, running }
+          }),
+        [],
+        { equals: (a, b) => a.length === b.length && a.every((session, index) => session === b[index]) },
+      )
+      // A run that stops changes unread and error marks, which only the catalog has.
+      createEffect(
+        on(
+          () => shown().flatMap((session) => (session.running ? [session.id] : [])),
+          (now, before = []) => {
+            if (enabled && before.some((id) => !now.includes(id))) void refresh()
+          },
+          { defer: true },
+        ),
+      )
+      return { shown, dispose }
+    })
 
     function returnFocus() {
       if (!focusConversation) return
@@ -334,7 +367,7 @@ export default Plugin.define({
           <InboxPanel
             selectionMemory={selectionMemory}
             state={state()}
-            sessions={sessions()}
+            sessions={live.shown()}
             error={error() || refreshError()}
             loading={loading()}
             focused={focused()}
@@ -508,6 +541,7 @@ export default Plugin.define({
       stopRoute()
       stopPanel()
       stopApp()
+      live.dispose()
     }
   },
 })
