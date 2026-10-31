@@ -189,6 +189,26 @@ include it when you [open an issue](https://github.com/abeisleem/opencode-switch
 questions for a workspace, or the workspace no longer exists. Click the message for details. The panel retries
 on its own every 15 seconds.
 
+## Tour
+
+Projects group their sessions, and each row shows its state: running, waiting for approval, asking a question,
+failed, or unread. A worktree's sessions show its name.
+
+![Projects with sessions in every state](docs/media/switchboard-states.gif)
+
+`l` moves a session to its project's Later fold, and `a` brings it back. A folded Later shows how many sessions it
+holds.
+
+![Moving sessions between Active and Later](docs/media/switchboard-later.gif)
+
+`u` marks a session unread, and marks it read again.
+
+![Marking a session unread and read](docs/media/switchboard-unread.gif)
+
+A folded project sums up its sessions' states in badges.
+
+![Folding a project](docs/media/switchboard-folded.gif)
+
 ## Contributing
 
 Bug reports and pull requests from forks are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
