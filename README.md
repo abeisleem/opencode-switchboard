@@ -3,7 +3,7 @@
 A better session tabs panel for OpenCode: sessions grouped by project and worktree, unread marks, and a
 Later fold to snooze work until you come back to it.
 
-<!-- DEMO: add the demo video or GIF here before the launch post. -->
+https://github.com/user-attachments/assets/2280657f-866c-4185-917f-e33c25de1ee0
 
 OpenCode's native tabs are a flat strip of open sessions. Once you run several agents across a few projects,
 it gets hard to tell what is still working, what is waiting on you, and what finished while you were
@@ -19,6 +19,26 @@ elsewhere. The switchboard replaces the tabs with a panel built for that:
 - **Nothing is deleted.** Closing a session or a project only hides it from the panel.
 - **Follows you across TUIs.** The switchboard lives on the OpenCode server, so every TUI connected to it sees
   the same projects, sessions, and unread marks.
+
+### Tour
+
+Projects group their sessions, and each row shows its state: running, waiting for approval, asking a question,
+failed, or unread. A worktree's sessions show its name.
+
+![Projects with sessions in every state](docs/media/switchboard-states.gif)
+
+`l` moves a session to its project's Later fold, and `a` brings it back. A folded Later shows how many sessions it
+holds.
+
+![Moving sessions between Active and Later](docs/media/switchboard-later.gif)
+
+`u` marks a session unread, and marks it read again.
+
+![Marking a session unread and read](docs/media/switchboard-unread.gif)
+
+A folded project sums up its sessions' states in badges.
+
+![Folding a project](docs/media/switchboard-folded.gif)
 
 > **Status:** early preview (0.x). Requires OpenCode 2.2.0. OpenCode plugins can only add panels on the right
 > side of a session, so the switchboard opens there rather than where the native tabs sit.
@@ -188,26 +208,6 @@ include it when you [open an issue](https://github.com/abeisleem/opencode-switch
 **A `~` indicator, or "Attention unavailable" at the bottom.** The switchboard could not read approvals or
 questions for a workspace, or the workspace no longer exists. Click the message for details. The panel retries
 on its own every 15 seconds.
-
-## Tour
-
-Projects group their sessions, and each row shows its state: running, waiting for approval, asking a question,
-failed, or unread. A worktree's sessions show its name.
-
-![Projects with sessions in every state](docs/media/switchboard-states.gif)
-
-`l` moves a session to its project's Later fold, and `a` brings it back. A folded Later shows how many sessions it
-holds.
-
-![Moving sessions between Active and Later](docs/media/switchboard-later.gif)
-
-`u` marks a session unread, and marks it read again.
-
-![Marking a session unread and read](docs/media/switchboard-unread.gif)
-
-A folded project sums up its sessions' states in badges.
-
-![Folding a project](docs/media/switchboard-folded.gif)
 
 ## Contributing
 
