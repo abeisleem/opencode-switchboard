@@ -777,7 +777,7 @@ test("help lists one panel key per line in a muted column, with how to open the 
     expect(lines[intro]!.trim()).toBe("Open with ctrl+x i or /switchboard")
     expect(cell(app, lines[intro]!.indexOf("ctrl"), intro).fg).toBe("#737aa2")
     expect(cell(app, lines[intro]!.indexOf("Open"), intro).fg).toBe("#c0caf5")
-    const keys = ["↑/↓ j/k", "enter", "u", "a / l", "x", "r", "d", "esc"]
+    const keys = ["↑/↓ j/k", "enter", "u", "a / l", "x", "esc"]
     const rows = lines.slice(intro + 2, intro + 2 + keys.length)
     expect(rows.map((line) => line.slice(5, 17).trim())).toEqual(keys)
     // Every action starts in the same column, in normal text after a muted key.
@@ -786,7 +786,7 @@ test("help lists one panel key per line in a muted column, with how to open the 
       expect(cell(app, 5, intro + 2 + index).fg).toBe("#737aa2")
       expect(cell(app, 17, intro + 2 + index).fg).toBe("#c0caf5")
     }
-    expect(lines.join("\n")).not.toMatch(/Ctrl|Enter|Esc|• unread|Closed sessions/)
+    expect(lines.join("\n")).not.toMatch(/Ctrl|Enter|Esc|• unread|Closed sessions|never deletes|Refresh/)
     const ok = lines.findIndex((line) => line.includes(" ok "))
     expect(ok).toBeGreaterThan(intro + keys.length)
     await app.mockMouse.click(lines[ok]!.indexOf("ok"), ok)
