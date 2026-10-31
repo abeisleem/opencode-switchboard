@@ -129,8 +129,6 @@ Unread is independent of placement: mark a session unread to come back to it, wh
 | `a` / `l` | Move to Active / Later                                 |
 | `x`       | Close session or project (keeps its saved state)       |
 | Ctrl+X, then W | Close the current conversation's row from either pane |
-| `r`       | Refresh                                                |
-| `d`       | Show details of the last refresh, including any errors |
 | `?`       | Help                                                   |
 | Esc       | Close the panel                                        |
 
@@ -187,8 +185,9 @@ the package in your global `opencode.json(c)`, as Install step 1 does.
 `opencode-switchboard-errors.log` in the TUI machine's temp directory (`$TMPDIR`, often `/tmp`). Please
 include it when you [open an issue](https://github.com/abeisleem/opencode-switchboard/issues).
 
-**A `~` indicator, or "Attention needs refresh" at the bottom.** The switchboard could not read approvals or
-questions for a workspace, or the workspace no longer exists. Press `d` for details and `r` to retry.
+**A `~` indicator, or "Attention unavailable" at the bottom.** The switchboard could not read approvals or
+questions for a workspace, or the workspace no longer exists. Click the message for details. The panel retries
+on its own every 15 seconds.
 
 ## Contributing
 

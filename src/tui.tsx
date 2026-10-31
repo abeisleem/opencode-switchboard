@@ -422,7 +422,6 @@ export default Plugin.define({
                 setTimeout(returnFocus, 0),
               )
             }}
-            refresh={() => void refresh()}
             close={close}
             help={() => void help()}
             diagnostics={() => void diagnostics()}
@@ -441,9 +440,7 @@ export default Plugin.define({
                   { bind: "a", run: () => actions.place("active") },
                   { bind: "l", run: () => actions.place("later") },
                   { bind: "x", run: actions.remove },
-                  { bind: "r", run: refresh },
                   { bind: "?,shift+?", run: help },
-                  { bind: "d", run: diagnostics },
                   { bind: "escape", run: close },
                 ],
               }))

@@ -2,6 +2,8 @@
 
 ## 0.1.4 (unreleased)
 
+- The panel no longer has `r` (refresh) or `d` (refresh details) keys. It refreshes itself from OpenCode's
+  events and every 15 seconds. Click the error line at the bottom of the panel to see details.
 - The help dialog (`?`) lists one panel key per line in an aligned column, styled like OpenCode's command
   palette, and shows how to open the switchboard and switch panes.
 - After a Switchboard dialog closes, OpenCode commands that move focus work again. Previously Ctrl+X, then ↓

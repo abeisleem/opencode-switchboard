@@ -91,7 +91,6 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
             ),
           )
         }
-        refresh={() => {}}
         close={() => renderer.destroy()}
         help={() => {}}
         diagnostics={() => {}}

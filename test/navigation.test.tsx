@@ -212,6 +212,7 @@ async function harness(
     dialogs,
     open: () => command("opencode-switchboard.open").run(),
     close: () => command("opencode-switchboard.close-current"),
+    binds: () => commands().flatMap((item) => (typeof item.bind === "string" ? [item.bind] : [])),
     key: (bind: string) =>
       commands()
         .find((item) => item.bind === bind)!
@@ -537,18 +538,34 @@ test("catalog requests apply only until OpenCode loads the request lists", async
   }
 })
 
+test("the panel binds no manual refresh or details keys", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    // Polling and events keep the catalog current; the error line opens the details.
+    const binds = run.binds().flatMap((bind) => bind.split(","))
+    expect(binds).toContain("x")
+    expect(binds).not.toContain("r")
+    expect(binds).not.toContain("d")
+  } finally {
+    await run.dispose()
+  }
+})
+
 test("our dialogs leave OpenCode no focus to restore, then refocus the panel once on close", async () => {
   const focus = fakeFocus()
   const run = await harness({ focus })
   try {
     await run.open()
     await run.frame()
-    for (const [bind, label] of [
-      ["?,shift+?", "help"],
-      ["d", "refresh details"],
+    for (const [open, label] of [
+      [() => run.key("?,shift+?"), "help"],
+      // The details dialog opens from the error line at the bottom of the panel.
+      [() => run.app.mockMouse.click(2, 19), "refresh details"],
     ] as const) {
       focus.events.length = 0
-      await run.key(bind)
+      await open()
       // OpenCode refocuses what it saw focused on every later dialog clear, so it must see nothing.
       expect(run.dialogs.at(-1)?.saved, label).toBeNull()
       expect(focus.events, label).toEqual(["blur"])

@@ -169,7 +169,6 @@ export type PanelProps = {
   current?: string | null
   /** Open a session; the host then focuses its conversation. */
   open: (session: Session) => void
-  refresh: () => void
   close: () => void
   help: () => void
   diagnostics: () => void

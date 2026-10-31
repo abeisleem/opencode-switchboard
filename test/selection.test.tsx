@@ -78,7 +78,6 @@ async function harness(input: { sessions: Session[]; state: State }, height = 28
           act={dispatch}
           open={(session) => dispatch({ type: "select", sessionID: session.id, observed: session.idle })}
           focused
-          refresh={() => {}}
           close={() => {}}
           help={() => {}}
           diagnostics={() => {}}
