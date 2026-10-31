@@ -7,8 +7,16 @@
   Previously they could lag by up to 15 seconds, until the panel's next refresh.
 - Row highlights reach the panel's available right edge, with the padded space after the close control kept
   inside the highlight.
-- Collapsed projects and Later groups use the same animated spinner, running color, and animation timing as
-  session rows. The spinner and count are aligned in a single-line heading.
+- Collapsed projects use the same animated spinner, running color, and animation timing as session rows. The
+  spinner and count are aligned in a single-line heading.
+- Collapsed-project badges use the session rows' colors: the attention color for `?` and the unread color for
+  `•`. A blank cell separates them from a long project name.
+- Project names are underlined and end in `/`, so a project reads as a directory and stands apart from session
+  titles. A long name fades out together with its `/` before the badges.
+- Fold triangles are dim until their row is hovered or selected, so they read as controls rather than content.
+- A folded Later shows how many sessions it holds, as `Later · 3`, and shows no badges. A folded project's
+  badges still count its Later sessions.
+- Sessions under Later show their status indicator under the Later triangle, next to the title.
 - Up/Down and j/k highlight the entire non-current row, including its detail line and close-button padding,
   while the panel has keyboard focus. Mouse hover keeps its existing behavior, and the current session remains
   bold without a row background.
