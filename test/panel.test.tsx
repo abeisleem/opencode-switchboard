@@ -81,6 +81,7 @@ function cell(app: Awaited<ReturnType<typeof testRender>>, x: number, y: number)
         fg: rgbToHex(span.fg),
         bg: rgbToHex(span.bg),
         bold: Boolean(span.attributes & TextAttributes.BOLD),
+        underline: Boolean(span.attributes & TextAttributes.UNDERLINE),
       }
     }
     left += span.width
@@ -331,7 +332,7 @@ for (const width of [26, 46]) {
       expect(line).toContain("▸ api-server")
       expect(line).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] 1  • 1 ✕ $/)
       expect(cell(app, width - 11, 1)).toMatchObject({ fg: palette.running, bg: palette.hover })
-      expect(cell(app, width - 6, 1)).toMatchObject({ char: "•", fg: palette.text, bg: palette.hover })
+      expect(cell(app, width - 6, 1)).toMatchObject({ char: "•", fg: palette.unread, bg: palette.hover })
       // Resting, hovering the title, and hovering the padded close target keep the same layout.
       await app.mockMouse.moveTo(3, lineOf(app, "dotfiles"))
       await app.renderOnce()
@@ -554,7 +555,7 @@ test("native session renames refresh mounted rows without waiting for the poll",
 })
 
 for (const width of [26, 46]) {
-  test(`project, Later, and session spinners share frames and colors at ${width} columns`, async () => {
+  test(`project and session spinners share frames and colors; a folded Later stays quiet at ${width} columns`, async () => {
     const sessions = demoSessions()
     const state = initialState()
     for (const session of sessions) {
@@ -594,13 +595,12 @@ for (const width of [26, 46]) {
       const before = lines()
       expect(before[1]).toContain("▸ api-server")
       expect(before[3]).toContain("▾ dotfiles")
-      expect(before[12]).toContain("▸ Later (3)")
-      for (const y of [1, 12]) {
-        expect(before[y]).toContain("⠋ 1  • 1")
-        expect(cell(app, before[y]!.indexOf("⠋"), y).fg).toBe(palette.running)
-        expect(before[y + 1]!.trim()).toBe("")
-      }
-      // All three locations use the same animation clock and stay on one text baseline.
+      // Parked work never badges its Later heading, folded or not.
+      expect(before[12]!.trim()).toBe("▸ Later · 3")
+      expect(before[1]).toContain("⠋ 1  • 1")
+      expect(cell(app, before[1]!.indexOf("⠋"), 1).fg).toBe(palette.running)
+      expect(before[2]!.trim()).toBe("")
+      // Both locations use the same animation clock and stay on one text baseline.
       expect(before[5]).toContain("⠋ Inbox panel")
       await Bun.sleep(200)
       await app.renderOnce()
@@ -609,11 +609,9 @@ for (const width of [26, 46]) {
       expect(after[5]).not.toContain("⠋ Inbox panel")
       expect(after[5]).toContain("Inbox panel")
       const frame = after[5]!.match(/(\S) Inbox panel/)![1]!
-      for (const y of [1, 12]) {
-        expect(after[y]).toContain(`${frame} 1  • 1`)
-        expect(after[y]!.replace(frame, "⠋")).toBe(before[y])
-      }
-      for (const y of [2, 3, 13]) expect(after[y]).toBe(before[y])
+      expect(after[1]).toContain(`${frame} 1  • 1`)
+      expect(after[1]!.replace(frame, "⠋")).toBe(before[1])
+      for (const y of [2, 3, 12, 13]) expect(after[y]).toBe(before[y])
     } finally {
       await app.dispose()
     }
@@ -641,6 +639,116 @@ test("group spinners animate when every running session is hidden in a collapsed
     await app.renderOnce()
     await app.renderOnce()
     expect(mark()).not.toBe(before)
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("project headings read as underlined directories, with triangles dim until the row is lit", async () => {
+  const app = await testRender(() => <Demo focused={false} />, { width: 46, height: 30 })
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    const y = lineOf(app, "api-server")
+    const name = "api-server/"
+    expect(app.captureCharFrame().split("\n")[y]).toContain(`▾ ${name}`)
+    expect(cell(app, 1, y)).toMatchObject({ char: "▾", fg: palette.detail, underline: false })
+    for (let x = 3; x < 3 + name.length; x++)
+      expect(cell(app, x, y)).toMatchObject({ fg: palette.muted, underline: true, bold: false })
+    expect(cell(app, 3 + name.length, y).underline).toBe(false)
+    // Later is a plain muted label: no underline or slash, and a count only once folded.
+    const later = lineOf(app, "Later")
+    expect(app.captureCharFrame().split("\n")[later]!.trim()).toBe("▾ Later")
+    expect(cell(app, 3, later)).toMatchObject({ char: "▾", fg: palette.detail })
+    expect(cell(app, 5, later)).toMatchObject({ char: "L", fg: palette.muted, underline: false })
+    // Hovering brightens the triangle with the label.
+    await app.mockMouse.moveTo(8, y)
+    await app.renderOnce()
+    expect(cell(app, 1, y).fg).toBe(palette.text)
+    expect(cell(app, 3, y)).toMatchObject({ fg: palette.text, underline: true })
+    await app.mockMouse.moveTo(8, later)
+    await app.renderOnce()
+    expect(cell(app, 3, later).fg).toBe(palette.text)
+    expect(cell(app, 5, later).fg).toBe(palette.text)
+    await app.mockMouse.click(8, later)
+    await app.renderOnce()
+    expect(app.captureCharFrame().split("\n")[later]!.trim()).toBe("▸ Later · 2")
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("sessions under Later put their indicator under the Later triangle, beside the title", async () => {
+  const app = await testRender(() => <Demo focused={false} />, { width: 46, height: 30 })
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    const lines = app.captureCharFrame().split("\n")
+    expect(lines[lineOf(app, "Review provider")]).toStartWith(" • Review provider")
+    const parked = lineOf(app, "Revisit keybindings")
+    expect(lines[parked]).toStartWith("   • Revisit keybindings")
+    expect(cell(app, 3, lineOf(app, "Later")).char).toBe("▾")
+    expect(cell(app, 3, parked)).toMatchObject({ char: "•", fg: palette.unread })
+    // Titles and worktree lines keep their columns.
+    const theme = lineOf(app, "Theme experiments")
+    expect(lines[theme]).toStartWith("     Theme experiments")
+    expect(lines[theme + 1]).toStartWith("     theme")
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("folded project badges take session-row colors and keep a gap after a long faded name", async () => {
+  const name = "customer-analytics-platform-monorepo"
+  const base = demoSessions()[0]!
+  const make = (id: string, status: "Question" | "Running" | "Ready", idle: number) => ({
+    ...base,
+    id,
+    title: id,
+    status,
+    idle,
+    running: status === "Running",
+    project: "long",
+    projectName: name,
+  })
+  const sessions = [make("ask", "Question", 0), make("run", "Running", 0), make("done", "Ready", 2)]
+  const state = initialState()
+  state.projects.long = { name, open: true, sessions: sessions.map((session) => session.id) }
+  state.collapsed = ["long"]
+  const noop = () => {}
+  const app = await testRender(
+    () => (
+      <InboxPanel
+        state={state}
+        sessions={sessions}
+        colors={palette}
+        error=""
+        loading={false}
+        focused={false}
+        act={noop}
+        open={noop}
+        refresh={noop}
+        close={noop}
+        help={noop}
+        diagnostics={noop}
+      />
+    ),
+    { width: 36, height: 10 },
+  )
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    const line = app.captureCharFrame().split("\n")[1]!
+    // The name and its slash fade out together, a blank cell before the first badge.
+    expect(line).not.toContain("/")
+    expect(line).toMatch(/▸ customer-analy\S* \? 1  ⠋ 1  • 1/)
+    const at = line.indexOf("?")
+    expect(cell(app, at - 2, 1).underline).toBe(true)
+    expect(cell(app, at - 1, 1)).toMatchObject({ char: " ", underline: false })
+    expect(cell(app, at, 1).fg).toBe(palette.attention)
+    expect(cell(app, at + 2, 1)).toMatchObject({ char: "1", fg: palette.muted })
+    expect(cell(app, line.indexOf("⠋"), 1).fg).toBe(palette.running)
+    expect(cell(app, line.indexOf("•"), 1).fg).toBe(palette.unread)
   } finally {
     await app.dispose()
   }

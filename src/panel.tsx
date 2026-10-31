@@ -58,6 +58,7 @@ function FadeText(props: {
   fg: string | RGBA
   background: string | RGBA
   bold?: boolean
+  underline?: boolean
   scroll?: boolean
 }) {
   let box: BoxRenderable | undefined
@@ -135,7 +136,10 @@ function FadeText(props: {
         selectable={false}
         fg={props.fg}
         wrapMode="none"
-        attributes={props.bold ? TextAttributes.BOLD : undefined}
+        attributes={
+          (props.bold ? TextAttributes.BOLD : 0) | (props.underline ? TextAttributes.UNDERLINE : 0) ||
+          undefined
+        }
       >
         <Show when={visible().overflows && width() > FADE_WIDTH} fallback={props.text}>
           <Index each={lead()}>
@@ -453,31 +457,38 @@ export function InboxPanel(props: PanelProps) {
                         height={1}
                         paddingLeft={1 + heading().depth * 2}
                       >
+                        {/* A control, not content: dim until the row is lit. */}
                         <text
                           selectable={false}
                           width={2}
                           flexShrink={0}
-                          fg={lit() ? props.colors.text : props.colors.muted}
+                          fg={lit() ? props.colors.text : props.colors.detail}
                         >
                           {heading().closed ? "▸ " : "▾ "}
                         </text>
+                        {/* A project reads as a directory: underlined, with a trailing `/` that fades with it. */}
                         <FadeText
-                          text={heading().title}
-                          fg={lit() ? props.colors.text : props.colors.muted}
+                          text={heading().depth === 0 ? `${heading().title}/` : heading().title}
+                          fg={headingColor()}
                           background={background()}
+                          underline={heading().depth === 0}
                           scroll={lit()}
                         />
                         <Show when={heading().badges.length}>
-                          <box flexDirection="row" alignItems="center" height={1} flexShrink={0} gap={2}>
+                          {/* The margin keeps a faded name off the first badge. */}
+                          <box
+                            flexDirection="row"
+                            alignItems="center"
+                            height={1}
+                            flexShrink={0}
+                            gap={2}
+                            marginLeft={1}
+                          >
                             <For each={heading().badges}>
                               {(badge) => (
                                 <box flexDirection="row" alignItems="center" height={1} gap={1}>
-                                  <text
-                                    selectable={false}
-                                    width={1}
-                                    height={1}
-                                    fg={badge.kind === "running" ? props.colors.running : headingColor()}
-                                  >
+                                  {/* Symbols take their session-row colors; counts stay with the heading. */}
+                                  <text selectable={false} width={1} height={1} fg={props.colors[badge.kind]}>
                                     {badgeSymbol(badge.kind)}
                                   </text>
                                   <text selectable={false} height={1} fg={headingColor()}>
@@ -503,7 +514,8 @@ export function InboxPanel(props: PanelProps) {
                             fg={indicator(session())[1]}
                             wrapMode="none"
                           >
-                            {`${indicator(session())[0].padStart(2)} ${" ".repeat(indent())}`}
+                            {/* A nested row's indicator sits under its heading's triangle, beside the title. */}
+                            {`${" ".repeat(indent())}${indicator(session())[0].padStart(2)} `}
                           </text>
                           {/* As in the native rail: bright when hovered or current, bold only when current. */}
                           <FadeText

@@ -69,7 +69,10 @@ test("collapsed headings expose activity counts alongside attention and unread c
   for (const item of sessions)
     state = reduce(state, { type: "place", sessionID: item.id, placement: "later" })
   state = reduce(state, { type: "collapse", key: laterKey("p") })
-  expect(rows(sessions, state)[1]).toMatchObject({ title: "Later (2)", badges })
+  // A folded Later stays quiet; its sessions still count toward the folded project.
+  expect(rows(sessions, state)[1]).toMatchObject({ title: "Later · 2", badges: [] })
+  state = reduce(state, { type: "collapse", key: "p" })
+  expect(rows(sessions, state)[0]).toMatchObject({ badges })
 })
 
 test("collapsed groups count queued sessions as activity like session-row spinners", () => {
@@ -244,7 +247,7 @@ test("Active sessions sit under the project; Later is one fold after them", () =
   expect(shape(sessions, state)).toEqual([
     ["Project", 0],
     ["a", 1],
-    ["Later (1)", 1],
+    ["Later · 1", 1],
   ])
 })
 
