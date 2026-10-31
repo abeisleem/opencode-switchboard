@@ -11,6 +11,26 @@ import plugin from "../src/tui"
 type Route = ReturnType<Plugin.Context["ui"]["router"]["current"]>
 type Layer = ReturnType<Parameters<Plugin.Context["keymap"]["layer"]>[0]>
 
+/** A focusable renderable and the renderer's record of which one has focus. */
+type FakeFocus = { current: unknown; events: string[] }
+
+function fakeFocus(): FakeFocus & { node: object } {
+  const focus = { current: null as unknown, events: [] as string[], node: {} }
+  focus.node = {
+    isDestroyed: false,
+    blur: () => {
+      focus.events.push("blur")
+      focus.current = null
+    },
+    focus: () => {
+      focus.events.push("focus")
+      focus.current = focus.node
+    },
+  }
+  focus.current = focus.node
+  return focus
+}
+
 type LiveSession = Pick<
   Plugin.Context["data"]["session"],
   "family" | "status" | "pending" | "permission" | "form" | "get"
@@ -24,6 +44,7 @@ async function harness(
     live?: Partial<LiveSession>
     active?: () => Record<string, unknown>
     approvals?: () => string[]
+    focus?: FakeFocus
   } = {},
 ) {
   let saved = initialState()
@@ -44,6 +65,8 @@ async function harness(
       : sessions.find((item) => item.id === sessionID)!
   const noop = () => {}
   let activeReads = 0
+  // What OpenCode would remember as the focus target when each dialog opened; see `modal` in src/tui.tsx.
+  const dialogs: { saved: unknown; close: () => void }[] = []
   let changed: (() => void) | undefined
   let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }
   await server.setup({
@@ -145,11 +168,25 @@ async function harness(
       },
       panel: { open: () => route().type === "session", current: () => undefined, close: noop },
       tabs: { enabled: () => false },
+      dialog: {
+        show: (_render: unknown, onClose?: () => void) =>
+          dialogs.push({ saved: options.focus?.current ?? null, close: onClose ?? noop }),
+        alert: () =>
+          new Promise<void>((resolve) =>
+            dialogs.push({ saved: options.focus?.current ?? null, close: resolve }),
+          ),
+        clear: noop,
+      },
     },
     keymap: {
       dispatch: noop,
       layer: (factory: () => Layer) => {
         layers.push(factory)
+      },
+    },
+    renderer: {
+      get currentFocusedRenderable() {
+        return options.focus?.current ?? null
       },
     },
   } as unknown as Plugin.Context
@@ -172,6 +209,7 @@ async function harness(
     saved: () => saved,
     sessions,
     activeReads: () => activeReads,
+    dialogs,
     open: () => command("opencode-switchboard.open").run(),
     close: () => command("opencode-switchboard.close-current"),
     key: (bind: string) =>
@@ -494,6 +532,31 @@ test("catalog requests apply only until OpenCode loads the request lists", async
     setLive("permission", "a", [])
     await run.frame()
     expect(mark(screen(), "Task a")).toBe("")
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("our dialogs leave OpenCode no focus to restore, then refocus the panel once on close", async () => {
+  const focus = fakeFocus()
+  const run = await harness({ focus })
+  try {
+    await run.open()
+    await run.frame()
+    for (const [bind, label] of [
+      ["?,shift+?", "help"],
+      ["d", "refresh details"],
+    ] as const) {
+      focus.events.length = 0
+      await run.key(bind)
+      // OpenCode refocuses what it saw focused on every later dialog clear, so it must see nothing.
+      expect(run.dialogs.at(-1)?.saved, label).toBeNull()
+      expect(focus.events, label).toEqual(["blur"])
+      run.dialogs.at(-1)!.close()
+      expect(await until(() => focus.events.length === 2), label).toBe(true)
+      expect(focus.events, label).toEqual(["blur", "focus"])
+      expect(focus.current, label).toBe(focus.node)
+    }
   } finally {
     await run.dispose()
   }
