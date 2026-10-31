@@ -2,30 +2,18 @@
 
 ## 0.1.4 (unreleased)
 
-- The panel no longer has `r` (refresh) or `d` (refresh details) keys. It refreshes itself from OpenCode's
-  events and every 15 seconds. Click the error line at the bottom of the panel to see details.
-- The help dialog (`?`) lists one panel key per line in an aligned column, styled like OpenCode's command
-  palette, and shows how to open the switchboard and switch panes.
-- After a Switchboard dialog closes, OpenCode commands that move focus work again. Previously Ctrl+X, then ↓
-  opened the terminal picker and focus jumped straight back to the panel.
-- Session and group indicators update as soon as OpenCode reports a change, as in its native tabs: spinners
-  start when a prompt is sent, and approval, question, error, and unread marks appear and clear immediately.
-  Previously they could lag by up to 15 seconds, until the panel's next refresh.
-- Row highlights reach the panel's available right edge, with the padded space after the close control kept
-  inside the highlight.
-- Collapsed projects use the same animated spinner, running color, and animation timing as session rows. The
-  spinner and count are aligned in a single-line heading.
-- Collapsed-project badges use the session rows' colors: the attention color for `?` and the unread color for
-  `•`. A blank cell separates them from a long project name.
-- Project names are underlined and end in `/`, so a project reads as a directory and stands apart from session
-  titles. A long name fades out together with its `/` before the badges.
-- Fold triangles are dim until their row is hovered or selected, so they read as controls rather than content.
-- A folded Later shows how many sessions it holds, as `Later · 3`, and shows no badges. A folded project's
-  badges still count its Later sessions.
-- Sessions under Later show their status indicator under the Later triangle, next to the title.
-- Up/Down and j/k highlight the entire non-current row, including its detail line and close-button padding,
-  while the panel has keyboard focus. Mouse hover keeps its existing behavior, and the current session remains
-  bold without a row background.
+- Session and project indicators update as soon as OpenCode reports a change, as in its native tabs. Spinners,
+  approval, question, error, and unread marks no longer lag by up to 15 seconds.
+- The `r` (refresh) and `d` (refresh details) keys are gone: the panel keeps itself current. Click the error
+  line at the bottom of the panel for details.
+- The help dialog (`?`) lists one key per line, styled like OpenCode's command palette, and shows how to open
+  the switchboard and switch panes.
+- Fixed: after a Switchboard dialog closed, OpenCode commands that move focus (such as Ctrl+X, then ↓) sent
+  focus straight back to the panel.
+- Up/Down and j/k highlight the whole row, out to the panel's right edge, while the panel has keyboard focus.
+- Project headings are clearer: names are underlined and end in `/`, fold triangles stay dim until hovered or
+  selected, and folded projects use the session rows' spinner and badge colors.
+- A folded Later shows how many sessions it holds, as `Later · 3`.
 
 ## 0.1.3 (2026-10-30)
 
