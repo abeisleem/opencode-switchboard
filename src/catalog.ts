@@ -1,6 +1,23 @@
 import type { OpenCodeClient, SessionInfo } from "@opencode/client"
+import type { Plugin } from "@opencode/plugin/tui"
 import type { Session, State } from "./model"
 import { readAttention, type Attention } from "./attention"
+
+/**
+ * Whether a row runs, by the native tabs' rule: a session in its family runs or holds a prompt that has not
+ * started. OpenCode updates this from live events, while the catalog updates only when it refreshes, so the
+ * catalog decides only for families OpenCode has not loaded.
+ */
+export function liveRunning(data: Plugin.Context["data"]["session"], session: Session) {
+  const family = data.family(session.id)
+  return (
+    [session.id, ...family].some(
+      (id) =>
+        data.status(id) === "running" || data.pending.list(id).some((item) => item.type !== "synthetic"),
+    ) ||
+    (family.length === 0 && session.running)
+  )
+}
 
 export async function loadCatalog(
   client: OpenCodeClient,

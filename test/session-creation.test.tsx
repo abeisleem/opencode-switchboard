@@ -76,7 +76,13 @@ async function fixture(projectID: string) {
         listeners.set(type, listener)
         return () => listeners.delete(type)
       },
-      session: { root: (id: string) => id, get: () => info },
+      session: {
+        root: (id: string) => id,
+        get: () => info,
+        family: () => [],
+        status: () => "idle",
+        pending: { list: () => [] },
+      },
       project: { get: () => undefined },
     },
     storage: {

@@ -3,6 +3,7 @@ import type { Plugin } from "@opencode/plugin/tui"
 import { RGBA, TextAttributes } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import { createSignal, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
 import { initialState, type Action, type State } from "../src/model"
 import server from "../src/server"
 import plugin from "../src/tui"
@@ -10,7 +11,17 @@ import plugin from "../src/tui"
 type Route = ReturnType<Plugin.Context["ui"]["router"]["current"]>
 type Layer = ReturnType<Parameters<Plugin.Context["keymap"]["layer"]>[0]>
 
-async function harness(options: { route?: Route; members?: string[]; selectGate?: Promise<void> } = {}) {
+type LiveSession = Pick<Plugin.Context["data"]["session"], "family" | "status" | "pending">
+
+async function harness(
+  options: {
+    route?: Route
+    members?: string[]
+    selectGate?: Promise<void>
+    live?: Partial<LiveSession>
+    active?: () => Record<string, unknown>
+  } = {},
+) {
   let saved = initialState()
   saved.revision = 1
   saved.selected = "a"
@@ -28,6 +39,7 @@ async function harness(options: { route?: Route; members?: string[]; selectGate?
       ? { ...sessions[1]!, id: "child", parentID: "b" }
       : sessions.find((item) => item.id === sessionID)!
   const noop = () => {}
+  let activeReads = 0
   let changed: (() => void) | undefined
   let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }
   await server.setup({
@@ -77,13 +89,27 @@ async function harness(options: { route?: Route; members?: string[]; selectGate?
         },
       }),
       project: { list: async () => [{ id: "work", name: "Work", canonical: "/work" }] },
-      session: { get, active: async () => ({}), list: async () => ({ data: sessions, cursor: {} }) },
+      session: {
+        get,
+        active: async () => {
+          activeReads++
+          return options.active?.() ?? {}
+        },
+        list: async () => ({ data: sessions, cursor: {} }),
+      },
       permission: { request: { list: async () => ({ data: [] }) } },
       form: { list: async () => ({ data: [] }) },
     },
     data: {
       on: () => noop,
-      session: { root: (id: string) => (id === "child" ? "b" : id), get: () => undefined },
+      session: {
+        root: (id: string) => (id === "child" ? "b" : id),
+        get: () => undefined,
+        family: () => [],
+        status: () => "idle",
+        pending: { list: () => [] },
+        ...options.live,
+      },
     },
     storage: {
       memory: (_key: string, input: { initial: unknown }) => [input.initial, noop],
@@ -135,6 +161,7 @@ async function harness(options: { route?: Route; members?: string[]; selectGate?
     rpc,
     saved: () => saved,
     sessions,
+    activeReads: () => activeReads,
     open: () => command("opencode-switchboard.open").run(),
     close: () => command("opencode-switchboard.close-current"),
     key: (bind: string) =>
@@ -299,6 +326,84 @@ test("startup at home does not select saved work and inactive Switchboard leaves
     expect(enabled()).toBe(true)
     await run.key("escape")
     expect(enabled()).toBe(false)
+  } finally {
+    await run.dispose()
+  }
+})
+
+/** OpenCode's live session store, as `ctx.data.session` exposes it, with setters for the test. */
+function liveStore(family: Record<string, string[]>) {
+  const [live, setLive] = createStore({
+    family,
+    active: {} as Record<string, "idle" | "running">,
+    pending: {} as Record<string, { type: string }[]>,
+  })
+  const session = {
+    family: (id: string) => live.family[id] ?? [],
+    status: (id: string) => live.active[id] ?? "idle",
+    pending: { list: (id: string) => live.pending[id] ?? [] },
+  } as unknown as LiveSession
+  return { session, setLive }
+}
+
+const spinning = (screen: string, title: string) => new RegExp(`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] ${title}`).test(screen)
+
+async function until(condition: () => boolean) {
+  for (let i = 0; i < 100 && !condition(); i++) await Bun.sleep(5)
+  return condition()
+}
+
+test("native running status starts and stops row spinners without waiting for the catalog poll", async () => {
+  const { session, setLive } = liveStore({ a: ["a"], b: ["b", "child"] })
+  const run = await harness({ live: session })
+  try {
+    await run.open()
+    await run.frame()
+    const screen = () => run.app.captureCharFrame()
+    expect(screen()).toContain("Task a")
+    expect(spinning(screen(), "Task a")).toBe(false)
+    const reads = run.activeReads()
+
+    setLive("active", "a", "running")
+    await run.frame()
+    expect(spinning(screen(), "Task a")).toBe(true)
+    expect(run.activeReads()).toBe(reads)
+
+    // A running subagent spins its root's row, as in the native tabs.
+    setLive("active", "child", "running")
+    await run.frame()
+    expect(spinning(screen(), "Task b")).toBe(true)
+    setLive("active", "child", "idle")
+    // A sent prompt spins before execution starts; synthetic context does not.
+    setLive("pending", "b", [{ type: "synthetic" }])
+    await run.frame()
+    expect(spinning(screen(), "Task b")).toBe(false)
+    setLive("pending", "b", [{ type: "synthetic" }, { type: "user" }])
+    await run.frame()
+    expect(spinning(screen(), "Task b")).toBe(true)
+
+    // Stopping clears the spinner at once, then refreshes the catalog's unread and error marks.
+    setLive("active", "a", "idle")
+    await run.frame()
+    expect(spinning(screen(), "Task a")).toBe(false)
+    expect(await until(() => run.activeReads() > reads)).toBe(true)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("the catalog's running state applies only to families OpenCode has not loaded", async () => {
+  const { session, setLive } = liveStore({})
+  const run = await harness({ live: session, active: () => ({ a: {} }) })
+  try {
+    await run.open()
+    await run.frame()
+    const screen = () => run.app.captureCharFrame()
+    expect(await until(() => spinning(screen(), "Task a"))).toBe(true)
+    // Once OpenCode tracks the family, its live idle status wins over the polled catalog.
+    setLive("family", "a", ["a"])
+    await run.frame()
+    expect(spinning(screen(), "Task a")).toBe(false)
   } finally {
     await run.dispose()
   }
