@@ -1,0 +1,14 @@
+{
+  "name": "opencode-switchboard-demo",
+  "private": true,
+  "type": "module",
+  "description": "Records and renders the switchboard demo video and GIFs. Not part of the published package.",
+  "scripts": {
+    "record": "cd .. && bun run build && cd demo && env -u OPENCODE_CLI_CONFIG_CONTENT -u OPENCODE_SESSION_ID -u OPENCODE -u OPENCODE_TERMINAL OPENCODE_DRIVE_MEDIA_DIR=$HOME/.cache/opencode-switchboard-demo/recordings opencode-drive run ./record.ts",
+    "render": "bun ./render.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.1",
+    "opencode-drive": "2.4.0"
+  }
+}
