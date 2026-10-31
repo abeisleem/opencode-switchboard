@@ -3,20 +3,64 @@ import type { Plugin } from "@opencode/plugin/tui"
 import type { Session, State } from "./model"
 import { readAttention, type Attention } from "./attention"
 
+const SETTLED: Session["status"][] = ["Error", "Interrupted", "Ready", "Idle"]
+
+function settled(outcome: SessionInfo["outcome"]): Session["status"] {
+  if (outcome === "failed") return "Error"
+  if (outcome === "interrupted") return "Interrupted"
+  if (outcome === "succeeded") return "Ready"
+  return "Idle"
+}
+
 /**
- * Whether a row runs, by the native tabs' rule: a session in its family runs or holds a prompt that has not
- * started. OpenCode updates this from live events, while the catalog updates only when it refreshes, so the
- * catalog decides only for families OpenCode has not loaded.
+ * Whether a session family has a pending request: true or false once OpenCode tracks every member's list,
+ * otherwise undefined. OpenCode adds a request to a member's list on its event, even before loading the list.
  */
-export function liveRunning(data: Plugin.Context["data"]["session"], session: Session) {
+function requested(members: string[], list: (id: string) => readonly unknown[] | undefined) {
+  const lists = members.map(list)
+  if (lists.some((items) => (items?.length ?? 0) > 0)) return true
+  return lists.every((items) => items !== undefined) ? false : undefined
+}
+
+/**
+ * A row with its indicators read as the native tabs read them, from OpenCode's live session store: requests
+ * and activity across the session's family, and its outcome and idle and viewed times. OpenCode updates the
+ * store from server events, while the catalog updates only when it refreshes, so catalog values remain only
+ * where OpenCode has not loaded the data.
+ */
+export function liveSession(data: Plugin.Context["data"]["session"], session: Session): Session {
   const family = data.family(session.id)
-  return (
-    [session.id, ...family].some(
+  const members = [session.id, ...family]
+  const info = data.get(session.id)
+  const running =
+    members.some(
       (id) =>
         data.status(id) === "running" || data.pending.list(id).some((item) => item.type !== "synthetic"),
     ) ||
     (family.length === 0 && session.running)
+  const approval = requested(members, (id) => data.permission.list(id)) ?? session.status === "Approval"
+  const question = requested(members, (id) => data.form.list(id)) ?? session.status === "Question"
+  const status = approval
+    ? "Approval"
+    : question
+      ? "Question"
+      : running
+        ? "Running"
+        : info
+          ? settled(info.outcome)
+          : SETTLED.includes(session.status)
+            ? session.status
+            : "Idle"
+  const idle = info ? (info.time.idle ?? 0) : session.idle
+  const viewed = info ? (info.time.viewed ?? 0) : session.viewed
+  if (
+    running === session.running &&
+    status === session.status &&
+    idle === session.idle &&
+    viewed === session.viewed
   )
+    return session
+  return { ...session, running, status, idle, viewed }
 }
 
 export async function loadCatalog(
@@ -124,10 +168,7 @@ export async function loadCatalog(
         if (approvals.has(session.id)) return "Approval"
         if (questions.has(session.id)) return "Question"
         if (running.has(session.id)) return "Running"
-        if (session.outcome === "failed") return "Error"
-        if (session.outcome === "interrupted") return "Interrupted"
-        if (session.outcome === "succeeded") return "Ready"
-        return "Idle"
+        return settled(session.outcome)
       }
       return {
         id: session.id,

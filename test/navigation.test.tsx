@@ -11,7 +11,10 @@ import plugin from "../src/tui"
 type Route = ReturnType<Plugin.Context["ui"]["router"]["current"]>
 type Layer = ReturnType<Parameters<Plugin.Context["keymap"]["layer"]>[0]>
 
-type LiveSession = Pick<Plugin.Context["data"]["session"], "family" | "status" | "pending">
+type LiveSession = Pick<
+  Plugin.Context["data"]["session"],
+  "family" | "status" | "pending" | "permission" | "form" | "get"
+>
 
 async function harness(
   options: {
@@ -20,6 +23,7 @@ async function harness(
     selectGate?: Promise<void>
     live?: Partial<LiveSession>
     active?: () => Record<string, unknown>
+    approvals?: () => string[]
   } = {},
 ) {
   let saved = initialState()
@@ -97,7 +101,11 @@ async function harness(
         },
         list: async () => ({ data: sessions, cursor: {} }),
       },
-      permission: { request: { list: async () => ({ data: [] }) } },
+      permission: {
+        request: {
+          list: async () => ({ data: (options.approvals?.() ?? []).map((sessionID) => ({ sessionID })) }),
+        },
+      },
       form: { list: async () => ({ data: [] }) },
     },
     data: {
@@ -108,6 +116,8 @@ async function harness(
         family: () => [],
         status: () => "idle",
         pending: { list: () => [] },
+        permission: { list: () => undefined },
+        form: { list: () => undefined },
         ...options.live,
       },
     },
@@ -337,16 +347,24 @@ function liveStore(family: Record<string, string[]>) {
     family,
     active: {} as Record<string, "idle" | "running">,
     pending: {} as Record<string, { type: string }[]>,
+    permission: {} as Record<string, { id: string }[]>,
+    form: {} as Record<string, { id: string }[]>,
+    info: {} as Record<string, { outcome?: string; time: { idle?: number; viewed?: number } }>,
   })
   const session = {
     family: (id: string) => live.family[id] ?? [],
     status: (id: string) => live.active[id] ?? "idle",
     pending: { list: (id: string) => live.pending[id] ?? [] },
+    permission: { list: (id: string) => live.permission[id] },
+    form: { list: (id: string) => live.form[id] },
+    get: (id: string) => live.info[id],
   } as unknown as LiveSession
   return { session, setLive }
 }
 
 const spinning = (screen: string, title: string) => new RegExp(`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] ${title}`).test(screen)
+/** The row's left indicator: "!", "?", "×", "•", or "" for none. */
+const mark = (screen: string, title: string) => screen.match(new RegExp(`(\\S?) ${title}`))?.[1] ?? ""
 
 async function until(condition: () => boolean) {
   for (let i = 0; i < 100 && !condition(); i++) await Bun.sleep(5)
@@ -404,6 +422,78 @@ test("the catalog's running state applies only to families OpenCode has not load
     setLive("family", "a", ["a"])
     await run.frame()
     expect(spinning(screen(), "Task a")).toBe(false)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("approval and question marks follow OpenCode's live requests", async () => {
+  const { session, setLive } = liveStore({ a: ["a"], b: ["b", "child"] })
+  const run = await harness({ live: session })
+  try {
+    await run.open()
+    await run.frame()
+    const screen = () => run.app.captureCharFrame()
+    expect(screen()).toContain("Task a")
+    const reads = run.activeReads()
+
+    // A subagent's request marks its root, over the running spinner, without a catalog read.
+    setLive("active", "child", "running")
+    setLive("permission", "child", [{ id: "approval" }])
+    await run.frame()
+    expect(mark(screen(), "Task b")).toBe("!")
+    setLive("form", "a", [{ id: "question" }])
+    await run.frame()
+    expect(mark(screen(), "Task a")).toBe("?")
+    expect(run.activeReads()).toBe(reads)
+
+    // Answering clears the mark at once and refreshes the catalog for sessions OpenCode has not loaded.
+    setLive("permission", "child", [])
+    await run.frame()
+    expect(spinning(screen(), "Task b")).toBe(true)
+    setLive("form", "a", [])
+    await run.frame()
+    expect(mark(screen(), "Task a")).toBe("")
+    expect(await until(() => run.activeReads() > reads)).toBe(true)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("error and unread marks follow OpenCode's live session outcome and times", async () => {
+  const { session, setLive } = liveStore({ a: ["a"], b: ["b"] })
+  const run = await harness({ live: session })
+  try {
+    await run.open()
+    await run.frame()
+    const screen = () => run.app.captureCharFrame()
+    expect(mark(screen(), "Task a")).toBe("")
+    // OpenCode reloads a session's info when its run ends, then when a client views it.
+    setLive("info", "a", { outcome: "succeeded", time: { idle: 50, viewed: 0 } })
+    await run.frame()
+    expect(mark(screen(), "Task a")).toBe("•")
+    setLive("info", "a", { outcome: "succeeded", time: { idle: 50, viewed: 60 } })
+    await run.frame()
+    expect(mark(screen(), "Task a")).toBe("")
+    setLive("info", "a", { outcome: "failed", time: { idle: 70, viewed: 80 } })
+    await run.frame()
+    expect(mark(screen(), "Task a")).toBe("×")
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("catalog requests apply only until OpenCode loads the request lists", async () => {
+  const { session, setLive } = liveStore({ a: ["a"] })
+  const run = await harness({ live: session, approvals: () => ["a"] })
+  try {
+    await run.open()
+    await run.frame()
+    const screen = () => run.app.captureCharFrame()
+    expect(await until(() => mark(screen(), "Task a") === "!")).toBe(true)
+    setLive("permission", "a", [])
+    await run.frame()
+    expect(mark(screen(), "Task a")).toBe("")
   } finally {
     await run.dispose()
   }

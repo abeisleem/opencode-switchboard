@@ -15,7 +15,7 @@ import {
 } from "solid-js"
 import { Switchboard } from "./rpc"
 import { initialState, laterKey, projectOf, type Action, type Session, type State } from "./model"
-import { liveRunning, loadCatalog } from "./catalog"
+import { liveSession, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
 import { InboxPanel, type PanelProps } from "./panel"
 import { palette } from "./palette"
@@ -100,21 +100,22 @@ export default Plugin.define({
     // Whether the fullscreen switchboard covers the new-session screen, and that screen's project.
     const [fromHome, setFromHome] = createSignal(false)
     let homeLocation: LocationProject | undefined
-    // Rows take running state from OpenCode's live session store, as the native tabs do; see `liveRunning`.
+    // Rows take their indicators from OpenCode's live session store, as the native tabs do; see `liveSession`.
     const live = createRoot((dispose) => {
       const shown = createMemo(
-        () =>
-          sessions().map((session) => {
-            const running = liveRunning(ctx.data.session, session)
-            return running === session.running ? session : { ...session, running }
-          }),
+        () => sessions().map((session) => liveSession(ctx.data.session, session)),
         [],
         { equals: (a, b) => a.length === b.length && a.every((session, index) => session === b[index]) },
       )
-      // A run that stops changes unread and error marks, which only the catalog has.
+      // Once a row's run and requests end, refresh the catalog values kept where OpenCode has not loaded the session.
       createEffect(
         on(
-          () => shown().flatMap((session) => (session.running ? [session.id] : [])),
+          () =>
+            shown().flatMap((session) =>
+              session.running || session.status === "Approval" || session.status === "Question"
+                ? [session.id]
+                : [],
+            ),
           (now, before = []) => {
             if (enabled && before.some((id) => !now.includes(id))) void refresh()
           },
