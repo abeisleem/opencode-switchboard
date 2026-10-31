@@ -20,6 +20,14 @@ elsewhere. The switchboard replaces the tabs with a panel built for that:
 - **Follows you across TUIs.** The switchboard lives on the OpenCode server, so every TUI connected to it sees
   the same projects, sessions, and unread marks.
 
+### Coming next
+
+- Reorder projects, and sessions within a project, with keys or by dragging
+  ([#9](https://github.com/abeisleem/opencode-switchboard/issues/9)).
+- Fold and unfold headings with ← and → ([#45](https://github.com/abeisleem/opencode-switchboard/issues/45)).
+- The working directory and git branch at the bottom of the panel
+  ([#42](https://github.com/abeisleem/opencode-switchboard/issues/42)).
+
 ### Tour
 
 Projects group their sessions, and each row shows its state: running, waiting for approval, asking a question,
