@@ -374,7 +374,9 @@ async function main() {
   // README GIFs: one beat each, cut from the video so they match it frame for frame.
   const videoAt = (time: number) => (time - start) / 1000
   const gifs = [
-    { name: "states", from: videoAt(opened + 900), seconds: 4 },
+    // After the push-in settles and the keycap fades, before the first arrow: one 800 ms spinner cycle, so it
+    // loops seamlessly.
+    { name: "states", from: videoAt(opened + 1250), seconds: 0.8 },
     { name: "later", from: videoAt(at("later")!), to: videoAt(at("unread")!) },
     { name: "unread", from: videoAt(at("unread")!), to: videoAt(at("folded")!) },
     { name: "folded", from: videoAt(at("folded")!), to: videoAt(at("end")!) },
