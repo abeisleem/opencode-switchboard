@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.4 (2026-10-30)
+## 0.1.4 (unreleased)
 
 - Row highlights reach the panel's available right edge, with the padded space after the close control kept
   inside the highlight.
