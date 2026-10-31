@@ -21,7 +21,14 @@ const KEYS = [
  * The panel's key reference, laid out like OpenCode's own alert: bold title with a muted `esc`, side padding of
  * three cells, and an `ok` button. Keys are muted, as shortcuts are in the command palette.
  */
-export function HelpDialog(props: { theme: DialogTheme; open: string; close: () => void }) {
+export function HelpDialog(props: {
+  theme: DialogTheme
+  /** Shortcuts as the keymap formats them: open the switchboard, then focus the left and right panes. */
+  open: string
+  left: string
+  right: string
+  close: () => void
+}) {
   const muted = () => props.theme.text.muted
   const base = () => props.theme.text.base
   return (
@@ -34,12 +41,20 @@ export function HelpDialog(props: { theme: DialogTheme; open: string; close: () 
           esc
         </text>
       </box>
-      <text>
-        <span style={{ fg: base() }}>Open with </span>
-        <span style={{ fg: muted() }}>{props.open}</span>
-        <span style={{ fg: base() }}> or </span>
-        <span style={{ fg: muted() }}>/switchboard</span>
-      </text>
+      <box>
+        <text>
+          <span style={{ fg: base() }}>Open with </span>
+          <span style={{ fg: muted() }}>{props.open}</span>
+          <span style={{ fg: base() }}> or </span>
+          <span style={{ fg: muted() }}>/switchboard</span>
+        </text>
+        <text>
+          <span style={{ fg: base() }}>Switch panes with </span>
+          <span style={{ fg: muted() }}>{props.left}</span>
+          <span style={{ fg: base() }}> and </span>
+          <span style={{ fg: muted() }}>{props.right}</span>
+        </text>
+      </box>
       <box paddingLeft={2}>
         <For each={KEYS}>
           {([key, action]) => (

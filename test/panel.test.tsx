@@ -765,10 +765,15 @@ test("help lists one panel key per line in a muted column, with how to open the 
     background: { action: { primary: { focused: RGBA.fromHex("#7aa2f7") } } },
   }
   let closed = 0
-  const app = await testRender(() => <HelpDialog theme={theme} open="ctrl+x i" close={() => closed++} />, {
-    width: 60,
-    height: 20,
-  })
+  const app = await testRender(
+    () => (
+      <HelpDialog theme={theme} open="ctrl+x i" left="ctrl+x ←" right="ctrl+x →" close={() => closed++} />
+    ),
+    {
+      width: 60,
+      height: 20,
+    },
+  )
   try {
     await app.renderOnce()
     const lines = app.captureCharFrame().split("\n")
@@ -777,14 +782,17 @@ test("help lists one panel key per line in a muted column, with how to open the 
     expect(lines[intro]!.trim()).toBe("Open with ctrl+x i or /switchboard")
     expect(cell(app, lines[intro]!.indexOf("ctrl"), intro).fg).toBe("#737aa2")
     expect(cell(app, lines[intro]!.indexOf("Open"), intro).fg).toBe("#c0caf5")
+    // OpenCode's own pane focus keys move between the conversation and the panel.
+    expect(lines[intro + 1]!.trim()).toBe("Switch panes with ctrl+x ← and ctrl+x →")
+    expect(cell(app, lines[intro + 1]!.indexOf("ctrl"), intro + 1).fg).toBe("#737aa2")
     const keys = ["↑/↓ j/k", "enter", "u", "a / l", "x", "esc"]
-    const rows = lines.slice(intro + 2, intro + 2 + keys.length)
+    const rows = lines.slice(intro + 3, intro + 3 + keys.length)
     expect(rows.map((line) => line.slice(5, 17).trim())).toEqual(keys)
     // Every action starts in the same column, in normal text after a muted key.
     for (const [index, line] of rows.entries()) {
       expect(line[17]).not.toBe(" ")
-      expect(cell(app, 5, intro + 2 + index).fg).toBe("#737aa2")
-      expect(cell(app, 17, intro + 2 + index).fg).toBe("#c0caf5")
+      expect(cell(app, 5, intro + 3 + index).fg).toBe("#737aa2")
+      expect(cell(app, 17, intro + 3 + index).fg).toBe("#c0caf5")
     }
     expect(lines.join("\n")).not.toMatch(/Ctrl|Enter|Esc|• unread|Closed sessions|never deletes|Refresh/)
     const ok = lines.findIndex((line) => line.includes(" ok "))

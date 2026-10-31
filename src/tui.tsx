@@ -354,6 +354,8 @@ export default Plugin.define({
           <HelpDialog
             theme={ctx.theme.surface("dialog")}
             open={ctx.keymap.shortcuts("opencode-switchboard.open")[0] ?? "ctrl+x i"}
+            left={ctx.keymap.shortcuts("pane.focus.left")[0] ?? "ctrl+x ←"}
+            right={ctx.keymap.shortcuts("pane.focus.right")[0] ?? "ctrl+x →"}
             close={close}
           />
         )
