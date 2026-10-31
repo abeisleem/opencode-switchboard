@@ -339,34 +339,57 @@ export default Plugin.define({
       } else if (state().collapsed.includes(key)) await act({ type: "collapse", key })
       reveal(`heading:${key}`)
     }
+    /**
+     * Opens one of our dialogs without leaving OpenCode a stale focus target. OpenCode 2.2.5 remembers what had
+     * focus when a dialog opens and refocuses it on every later `dialog.clear()`, even with no dialog open. Its
+     * Select terminal command (ctrl+x ↓) clears dialogs before focusing the composer, so focus snapped back to the
+     * panel. Blur first so OpenCode remembers nothing, then restore focus once when the dialog closes.
+     * Remove once OpenCode ships the fix for anomalyco/opencode#60881; tracked in #36.
+     */
+    function modal(open: (closed: () => void) => void) {
+      const previous = ctx.renderer.currentFocusedRenderable
+      previous?.blur()
+      open(() =>
+        setTimeout(() => {
+          if (previous && !previous.isDestroyed) previous.focus()
+        }, 0),
+      )
+    }
     const help = () =>
-      ctx.ui.dialog.show(() => {
-        const close = () => ctx.ui.dialog.clear()
-        // As in OpenCode's own help dialog; the layer ends when the dialog closes.
-        ctx.keymap.layer(() => ({
-          mode: "modal",
-          commands: [
-            { title: "Close help", bind: "return", run: close },
-            { title: "Close help", bind: "escape", run: close },
-          ],
-        }))
-        return (
-          <HelpDialog
-            theme={ctx.theme.surface("dialog")}
-            open={ctx.keymap.shortcuts("opencode-switchboard.open")[0] ?? "ctrl+x i"}
-            left={ctx.keymap.shortcuts("pane.focus.left")[0] ?? "ctrl+x ←"}
-            right={ctx.keymap.shortcuts("pane.focus.right")[0] ?? "ctrl+x →"}
-            close={close}
-          />
-        )
-      })
+      modal((closed) =>
+        ctx.ui.dialog.show(() => {
+          const close = () => ctx.ui.dialog.clear()
+          // As in OpenCode's own help dialog; the layer ends when the dialog closes.
+          ctx.keymap.layer(() => ({
+            mode: "modal",
+            commands: [
+              { title: "Close help", bind: "return", run: close },
+              { title: "Close help", bind: "escape", run: close },
+            ],
+          }))
+          return (
+            <HelpDialog
+              theme={ctx.theme.surface("dialog")}
+              open={ctx.keymap.shortcuts("opencode-switchboard.open")[0] ?? "ctrl+x i"}
+              left={ctx.keymap.shortcuts("pane.focus.left")[0] ?? "ctrl+x ←"}
+              right={ctx.keymap.shortcuts("pane.focus.right")[0] ?? "ctrl+x →"}
+              close={close}
+            />
+          )
+        }, closed),
+      )
     const diagnostics = () =>
-      ctx.ui.dialog.alert({
-        title: "Switchboard refresh details",
-        message:
-          [error(), refreshError(), ...issues()].filter(Boolean).join("\n\n") ||
-          "All location attention reads are current.",
-      })
+      modal(
+        (closed) =>
+          void ctx.ui.dialog
+            .alert({
+              title: "Switchboard refresh details",
+              message:
+                [error(), refreshError(), ...issues()].filter(Boolean).join("\n\n") ||
+                "All location attention reads are current.",
+            })
+            .then(closed),
+      )
     function panel(focused: () => boolean, surface: () => "panel" | "fullscreen" = () => "fullscreen") {
       // Built once per theme or surface change: rows read the palette on every update.
       const colors = createMemo(() => palette(ctx.theme, surface()))
