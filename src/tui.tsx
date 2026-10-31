@@ -17,6 +17,7 @@ import { Switchboard } from "./rpc"
 import { initialState, laterKey, projectOf, type Action, type Session, type State } from "./model"
 import { liveSession, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
+import { HelpDialog } from "./help"
 import { InboxPanel, type PanelProps } from "./panel"
 import { palette } from "./palette"
 import { createSelectionMemory, followRoute, navigated } from "./selection"
@@ -339,10 +340,23 @@ export default Plugin.define({
       reveal(`heading:${key}`)
     }
     const help = () =>
-      ctx.ui.dialog.alert({
-        title: "Switchboard controls",
-        message:
-          "↑/↓ or j/k: select · Enter: open/fold\nu: read/unread · a: Active · l: Later\nx: close session/project — never delete\nr: refresh · d: refresh details · Esc: close panel\n\nCtrl+O opens a project or session in the switchboard.\nCtrl+X I focuses the switchboard on the current conversation.\nCtrl+X W closes the current conversation's row from either pane.\n\n• unread · ⠋ running · ? question · ! approval\n× error · ~ workspace missing or cached attention\nBold: the current conversation\n\nClosed sessions return when you open them again.",
+      ctx.ui.dialog.show(() => {
+        const close = () => ctx.ui.dialog.clear()
+        // As in OpenCode's own help dialog; the layer ends when the dialog closes.
+        ctx.keymap.layer(() => ({
+          mode: "modal",
+          commands: [
+            { title: "Close help", bind: "return", run: close },
+            { title: "Close help", bind: "escape", run: close },
+          ],
+        }))
+        return (
+          <HelpDialog
+            theme={ctx.theme.surface("dialog")}
+            open={ctx.keymap.shortcuts("opencode-switchboard.open")[0] ?? "ctrl+x i"}
+            close={close}
+          />
+        )
       })
     const diagnostics = () =>
       ctx.ui.dialog.alert({

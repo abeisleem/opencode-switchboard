@@ -4,6 +4,7 @@ import { testRender } from "@opentui/solid"
 import type { Plugin } from "@opencode/plugin/tui"
 import { createSignal, type JSX } from "solid-js"
 import { DEMO_PALETTE as palette, Demo, demoSessions } from "../src/demo"
+import { HelpDialog } from "../src/help"
 import { InboxPanel, tint } from "../src/panel"
 import { initialState, laterKey } from "../src/model"
 import plugin from "../src/tui"
@@ -749,6 +750,47 @@ test("folded project badges take session-row colors and keep a gap after a long 
     expect(cell(app, at + 2, 1)).toMatchObject({ char: "1", fg: palette.muted })
     expect(cell(app, line.indexOf("⠋"), 1).fg).toBe(palette.running)
     expect(cell(app, line.indexOf("•"), 1).fg).toBe(palette.unread)
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("help lists one panel key per line in a muted column, with how to open the switchboard", async () => {
+  const theme = {
+    text: {
+      base: RGBA.fromHex("#c0caf5"),
+      muted: RGBA.fromHex("#737aa2"),
+      action: { primary: { focused: RGBA.fromHex("#1f2335") } },
+    },
+    background: { action: { primary: { focused: RGBA.fromHex("#7aa2f7") } } },
+  }
+  let closed = 0
+  const app = await testRender(() => <HelpDialog theme={theme} open="ctrl+x i" close={() => closed++} />, {
+    width: 60,
+    height: 20,
+  })
+  try {
+    await app.renderOnce()
+    const lines = app.captureCharFrame().split("\n")
+    expect(lines[0]).toMatch(/^ {3}Switchboard {2,}esc {3}$/)
+    const intro = lines.findIndex((line) => line.includes("Open with"))
+    expect(lines[intro]!.trim()).toBe("Open with ctrl+x i or /switchboard")
+    expect(cell(app, lines[intro]!.indexOf("ctrl"), intro).fg).toBe("#737aa2")
+    expect(cell(app, lines[intro]!.indexOf("Open"), intro).fg).toBe("#c0caf5")
+    const keys = ["↑/↓ j/k", "enter", "u", "a / l", "x", "r", "d", "esc"]
+    const rows = lines.slice(intro + 2, intro + 2 + keys.length)
+    expect(rows.map((line) => line.slice(5, 17).trim())).toEqual(keys)
+    // Every action starts in the same column, in normal text after a muted key.
+    for (const [index, line] of rows.entries()) {
+      expect(line[17]).not.toBe(" ")
+      expect(cell(app, 5, intro + 2 + index).fg).toBe("#737aa2")
+      expect(cell(app, 17, intro + 2 + index).fg).toBe("#c0caf5")
+    }
+    expect(lines.join("\n")).not.toMatch(/Ctrl|Enter|Esc|• unread|Closed sessions/)
+    const ok = lines.findIndex((line) => line.includes(" ok "))
+    expect(ok).toBeGreaterThan(intro + keys.length)
+    await app.mockMouse.click(lines[ok]!.indexOf("ok"), ok)
+    expect(closed).toBe(1)
   } finally {
     await app.dispose()
   }
