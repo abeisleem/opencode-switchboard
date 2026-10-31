@@ -190,6 +190,6 @@ export async function loadCatalog(
   return {
     sessions,
     issues,
-    warning: stale ? "Attention needs refresh · d details · r retry" : "",
+    warning: stale ? "Attention unavailable · click for details" : "",
   }
 }

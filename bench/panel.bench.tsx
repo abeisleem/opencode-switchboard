@@ -59,7 +59,6 @@ test("panel update cost (benchmark, not a pass/fail check)", async () => {
           }}
           act={() => {}}
           open={() => {}}
-          refresh={() => {}}
           close={() => {}}
           help={() => {}}
           diagnostics={() => {}}
