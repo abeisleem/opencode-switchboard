@@ -45,6 +45,7 @@ async function harness(
     active?: () => Record<string, unknown>
     approvals?: () => string[]
     focus?: FakeFocus
+    shortcuts?: (id: string) => readonly string[]
   } = {},
 ) {
   let saved = initialState()
@@ -66,7 +67,7 @@ async function harness(
   const noop = () => {}
   let activeReads = 0
   // What OpenCode would remember as the focus target when each dialog opened; see `modal` in src/tui.tsx.
-  const dialogs: { saved: unknown; close: () => void }[] = []
+  const dialogs: { saved: unknown; close: () => void; render?: () => JSX.Element }[] = []
   let changed: (() => void) | undefined
   let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }
   await server.setup({
@@ -152,6 +153,10 @@ async function harness(
       text: { base: color, muted: color, feedback: { error: { base: color } } },
       background: { base: color, action: { primary: { hovered: color } } },
       hue: { accent: { 200: color }, interactive: { 200: color } },
+      surface: () => ({
+        text: { base: color, muted: color, action: { primary: { focused: color } } },
+        background: { action: { primary: { focused: color } } },
+      }),
     },
     ui: {
       router: {
@@ -169,8 +174,8 @@ async function harness(
       panel: { open: () => route().type === "session", current: () => undefined, close: noop },
       tabs: { enabled: () => false },
       dialog: {
-        show: (_render: unknown, onClose?: () => void) =>
-          dialogs.push({ saved: options.focus?.current ?? null, close: onClose ?? noop }),
+        show: (render: () => JSX.Element, onClose?: () => void) =>
+          dialogs.push({ saved: options.focus?.current ?? null, close: onClose ?? noop, render }),
         alert: () =>
           new Promise<void>((resolve) =>
             dialogs.push({ saved: options.focus?.current ?? null, close: resolve }),
@@ -180,6 +185,7 @@ async function harness(
     },
     keymap: {
       dispatch: noop,
+      shortcuts: options.shortcuts ?? (() => []),
       layer: (factory: () => Layer) => {
         layers.push(factory)
       },
@@ -550,6 +556,47 @@ test("the panel binds no manual refresh or details keys", async () => {
     expect(binds).not.toContain("d")
   } finally {
     await run.dispose()
+  }
+})
+
+test("help shows the keymap's shortcuts exactly, and no ctrl+x for unbound commands", async () => {
+  for (const [bound, expected] of [
+    [
+      {
+        "opencode-switchboard.open": ["ctrl+a i"],
+        "pane.focus.left": ["ctrl+a ←"],
+        "pane.focus.right": ["ctrl+a →"],
+        "opencode-switchboard.close-current": ["ctrl+a w"],
+      },
+      [
+        "Open with ctrl+a i or /switchboard",
+        "Switch panes with ctrl+a ← and ctrl+a →",
+        "Close the current session with ctrl+a w",
+      ],
+    ],
+    // The user unbound everything in cli.json.
+    [{}, ["Open with /switchboard"]],
+  ] as const) {
+    const run = await harness({ shortcuts: (id) => (bound as Record<string, readonly string[]>)[id] ?? [] })
+    try {
+      await run.open()
+      await run.frame()
+      await run.key("?,shift+?")
+      const dialog = await testRender(run.dialogs.at(-1)!.render!, { width: 60, height: 20 })
+      try {
+        await dialog.renderOnce()
+        const screen = dialog.captureCharFrame()
+        const lines = screen.split("\n").map((line) => line.trim())
+        const start = lines.findIndex((line) => line.startsWith("Open with"))
+        expect(lines.slice(start, start + expected.length)).toEqual([...expected])
+        expect(lines[start + expected.length]).toBe("")
+        expect(screen).not.toContain("ctrl+x")
+      } finally {
+        await dialog.dispose()
+      }
+    } finally {
+      await run.dispose()
+    }
   }
 })
 

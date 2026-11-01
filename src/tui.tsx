@@ -17,7 +17,7 @@ import { Switchboard } from "./rpc"
 import { initialState, laterKey, projectOf, type Action, type Session, type State } from "./model"
 import { liveSession, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
-import { HelpDialog } from "./help"
+import { HelpDialog, helpShortcuts } from "./help"
 import { InboxPanel, type PanelProps } from "./panel"
 import { palette } from "./palette"
 import { createSelectionMemory, followRoute, navigated } from "./selection"
@@ -370,9 +370,7 @@ export default Plugin.define({
           return (
             <HelpDialog
               theme={ctx.theme.surface("dialog")}
-              open={ctx.keymap.shortcuts("opencode-switchboard.open")[0] ?? "ctrl+x i"}
-              left={ctx.keymap.shortcuts("pane.focus.left")[0] ?? "ctrl+x ←"}
-              right={ctx.keymap.shortcuts("pane.focus.right")[0] ?? "ctrl+x →"}
+              shortcuts={helpShortcuts((id) => ctx.keymap.shortcuts(id))}
               close={close}
             />
           )

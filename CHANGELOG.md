@@ -4,6 +4,8 @@
 
 - Fixed: switching between two Active sessions in a project no longer unfolds its folded Later. Opening a
   session that is in Later still unfolds it.
+- The help dialog (`?`) shows your configured shortcuts, including a custom leader, and lists the shortcut
+  that closes the current session's row. A command you have unbound is left out instead of showing Ctrl+X.
 
 ## 0.1.4 (2026-10-31)
 

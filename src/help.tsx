@@ -17,18 +17,54 @@ const KEYS = [
   ["esc", "Close panel when focused"],
 ] as const
 
+/** The commands that work outside the panel, whose shortcuts the help shows, by keymap command ID. */
+export const HELP_COMMANDS = {
+  open: "opencode-switchboard.open",
+  left: "pane.focus.left",
+  right: "pane.focus.right",
+  close: "opencode-switchboard.close-current",
+} as const
+
+/** Each command's shortcut as the keymap formats it, with the user's leader. An unbound command has none. */
+export type HelpShortcuts = Partial<Record<keyof typeof HELP_COMMANDS, string>>
+
+/** Reads every shortcut from the keymap; it never substitutes a default key for an unbound command. */
+export function helpShortcuts(shortcuts: (id: string) => readonly string[]): HelpShortcuts {
+  return Object.fromEntries(
+    Object.entries(HELP_COMMANDS).flatMap(([name, id]) => {
+      const key = shortcuts(id)[0]
+      return key ? [[name, key]] : []
+    }),
+  )
+}
+
+/** A sentence in base text, with its keys muted. */
+type Line = { text: string; key?: boolean }[]
+
+function introLines(keys: HelpShortcuts): Line[] {
+  const lines: Line[] = [
+    [
+      { text: "Open with " },
+      ...(keys.open ? [{ text: keys.open, key: true }, { text: " or " }] : []),
+      { text: "/switchboard", key: true },
+    ],
+  ]
+  const panes = [keys.left, keys.right].filter((key) => key !== undefined)
+  if (panes.length)
+    lines.push([
+      { text: "Switch panes with " },
+      ...panes.flatMap((key, index) => [...(index ? [{ text: " and " }] : []), { text: key, key: true }]),
+    ])
+  // Works from either pane without focusing the panel, so it belongs here rather than with the panel keys.
+  if (keys.close) lines.push([{ text: "Close the current session with " }, { text: keys.close, key: true }])
+  return lines
+}
+
 /**
  * The panel's key reference, laid out like OpenCode's own alert: bold title with a muted `esc`, side padding of
  * three cells, and an `ok` button. Keys are muted, as shortcuts are in the command palette.
  */
-export function HelpDialog(props: {
-  theme: DialogTheme
-  /** Shortcuts as the keymap formats them: open the switchboard, then focus the left and right panes. */
-  open: string
-  left: string
-  right: string
-  close: () => void
-}) {
+export function HelpDialog(props: { theme: DialogTheme; shortcuts: HelpShortcuts; close: () => void }) {
   const muted = () => props.theme.text.muted
   const base = () => props.theme.text.base
   return (
@@ -42,18 +78,15 @@ export function HelpDialog(props: {
         </text>
       </box>
       <box>
-        <text>
-          <span style={{ fg: base() }}>Open with </span>
-          <span style={{ fg: muted() }}>{props.open}</span>
-          <span style={{ fg: base() }}> or </span>
-          <span style={{ fg: muted() }}>/switchboard</span>
-        </text>
-        <text>
-          <span style={{ fg: base() }}>Switch panes with </span>
-          <span style={{ fg: muted() }}>{props.left}</span>
-          <span style={{ fg: base() }}> and </span>
-          <span style={{ fg: muted() }}>{props.right}</span>
-        </text>
+        <For each={introLines(props.shortcuts)}>
+          {(line) => (
+            <text>
+              <For each={line}>
+                {(part) => <span style={{ fg: part.key ? muted() : base() }}>{part.text}</span>}
+              </For>
+            </text>
+          )}
+        </For>
       </box>
       <box paddingLeft={2}>
         <For each={KEYS}>

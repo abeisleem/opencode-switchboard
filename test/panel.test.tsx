@@ -4,7 +4,7 @@ import { testRender } from "@opentui/solid"
 import type { Plugin } from "@opencode/plugin/tui"
 import { createSignal, type JSX } from "solid-js"
 import { DEMO_PALETTE as palette, Demo, demoSessions } from "../src/demo"
-import { HelpDialog } from "../src/help"
+import { HELP_COMMANDS, HelpDialog, helpShortcuts, type HelpShortcuts } from "../src/help"
 import { InboxPanel, tint } from "../src/panel"
 import { initialState, laterKey } from "../src/model"
 import plugin from "../src/tui"
@@ -753,44 +753,62 @@ test("folded project badges take session-row colors and keep a gap after a long 
   }
 })
 
+const helpTheme = {
+  text: {
+    base: RGBA.fromHex("#c0caf5"),
+    muted: RGBA.fromHex("#737aa2"),
+    action: { primary: { focused: RGBA.fromHex("#1f2335") } },
+  },
+  background: { action: { primary: { focused: RGBA.fromHex("#7aa2f7") } } },
+}
+
+async function renderHelp(shortcuts: HelpShortcuts, close = () => {}) {
+  const app = await testRender(() => <HelpDialog theme={helpTheme} shortcuts={shortcuts} close={close} />, {
+    width: 60,
+    height: 20,
+  })
+  await app.renderOnce()
+  return app
+}
+
+/** The lines above the panel-key list: how to open the switchboard and the shortcuts that work from either pane. */
+function helpIntro(app: Awaited<ReturnType<typeof testRender>>) {
+  const lines = app.captureCharFrame().split("\n")
+  const start = lines.findIndex((line) => line.includes("Open with"))
+  const end = lines.findIndex((line, index) => index > start && !line.trim())
+  return lines.slice(start, end).map((line) => line.trim())
+}
+
 test("help lists one panel key per line in a muted column, with how to open the switchboard", async () => {
-  const theme = {
-    text: {
-      base: RGBA.fromHex("#c0caf5"),
-      muted: RGBA.fromHex("#737aa2"),
-      action: { primary: { focused: RGBA.fromHex("#1f2335") } },
-    },
-    background: { action: { primary: { focused: RGBA.fromHex("#7aa2f7") } } },
-  }
   let closed = 0
-  const app = await testRender(
-    () => (
-      <HelpDialog theme={theme} open="ctrl+x i" left="ctrl+x ←" right="ctrl+x →" close={() => closed++} />
-    ),
-    {
-      width: 60,
-      height: 20,
-    },
+  const app = await renderHelp(
+    { open: "ctrl+x i", left: "ctrl+x ←", right: "ctrl+x →", close: "ctrl+x w" },
+    () => closed++,
   )
   try {
-    await app.renderOnce()
     const lines = app.captureCharFrame().split("\n")
     expect(lines[0]).toMatch(/^ {3}Switchboard {2,}esc {3}$/)
     const intro = lines.findIndex((line) => line.includes("Open with"))
-    expect(lines[intro]!.trim()).toBe("Open with ctrl+x i or /switchboard")
-    expect(cell(app, lines[intro]!.indexOf("ctrl"), intro).fg).toBe("#737aa2")
-    expect(cell(app, lines[intro]!.indexOf("Open"), intro).fg).toBe("#c0caf5")
-    // OpenCode's own pane focus keys move between the conversation and the panel.
-    expect(lines[intro + 1]!.trim()).toBe("Switch panes with ctrl+x ← and ctrl+x →")
-    expect(cell(app, lines[intro + 1]!.indexOf("ctrl"), intro + 1).fg).toBe("#737aa2")
+    expect(helpIntro(app)).toEqual([
+      "Open with ctrl+x i or /switchboard",
+      // OpenCode's own pane focus keys move between the conversation and the panel.
+      "Switch panes with ctrl+x ← and ctrl+x →",
+      // Closing the viewed session's row works from either pane, so it sits with the global shortcuts.
+      "Close the current session with ctrl+x w",
+    ])
+    for (const offset of [0, 1, 2]) {
+      expect(cell(app, lines[intro + offset]!.indexOf("ctrl"), intro + offset).fg).toBe("#737aa2")
+      expect(cell(app, 3, intro + offset).fg).toBe("#c0caf5")
+    }
     const keys = ["↑/↓ j/k", "enter", "u", "a / l", "x", "esc"]
-    const rows = lines.slice(intro + 3, intro + 3 + keys.length)
+    const first = intro + 4
+    const rows = lines.slice(first, first + keys.length)
     expect(rows.map((line) => line.slice(5, 17).trim())).toEqual(keys)
     // Every action starts in the same column, in normal text after a muted key.
     for (const [index, line] of rows.entries()) {
       expect(line[17]).not.toBe(" ")
-      expect(cell(app, 5, intro + 3 + index).fg).toBe("#737aa2")
-      expect(cell(app, 17, intro + 3 + index).fg).toBe("#c0caf5")
+      expect(cell(app, 5, first + index).fg).toBe("#737aa2")
+      expect(cell(app, 17, first + index).fg).toBe("#c0caf5")
     }
     expect(lines.join("\n")).not.toMatch(/Ctrl|Enter|Esc|• unread|Closed sessions|never deletes|Refresh/)
     const ok = lines.findIndex((line) => line.includes(" ok "))
@@ -800,4 +818,51 @@ test("help lists one panel key per line in a muted column, with how to open the 
   } finally {
     await app.dispose()
   }
+})
+
+test("help shows the keymap's shortcuts with a custom leader and never assumes ctrl+x", async () => {
+  const app = await renderHelp({ open: "ctrl+a i", left: "ctrl+a ←", right: "ctrl+a →", close: "ctrl+a w" })
+  try {
+    expect(helpIntro(app)).toEqual([
+      "Open with ctrl+a i or /switchboard",
+      "Switch panes with ctrl+a ← and ctrl+a →",
+      "Close the current session with ctrl+a w",
+    ])
+    expect(app.captureCharFrame()).not.toContain("ctrl+x")
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("help invents no key for an unbound command", async () => {
+  const none = await renderHelp({})
+  try {
+    // /switchboard always works; the pane and close lines have nothing to show.
+    expect(helpIntro(none)).toEqual(["Open with /switchboard"])
+    expect(none.captureCharFrame()).not.toMatch(/ctrl|Switch panes|Close the current/)
+  } finally {
+    await none.dispose()
+  }
+  const some = await renderHelp({ open: "ctrl+x i", right: "ctrl+x →" })
+  try {
+    expect(helpIntro(some)).toEqual(["Open with ctrl+x i or /switchboard", "Switch panes with ctrl+x →"])
+  } finally {
+    await some.dispose()
+  }
+})
+
+test("help reads each command's first shortcut from the keymap, with no fallback for unbound ones", () => {
+  const bound: Record<string, string[]> = {
+    "opencode-switchboard.open": ["ctrl+a i", "f2"],
+    "pane.focus.right": ["ctrl+a →"],
+    "opencode-switchboard.close-current": ["ctrl+a w"],
+  }
+  const asked: string[] = []
+  const shortcuts = helpShortcuts((id) => {
+    asked.push(id)
+    return bound[id] ?? []
+  })
+  expect(asked.sort()).toEqual(Object.values(HELP_COMMANDS).sort())
+  expect(shortcuts).toEqual({ open: "ctrl+a i", right: "ctrl+a →", close: "ctrl+a w" })
+  expect(helpShortcuts(() => [])).toEqual({})
 })
