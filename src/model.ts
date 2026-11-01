@@ -38,6 +38,8 @@ export const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("unread"), sessionID: z.string() }),
   z.object({ type: z.literal("place"), sessionID: z.string(), placement }),
   z.object({ type: z.literal("collapse"), key: z.string() }),
+  // Sets a fold instead of toggling it, so key repeat or a second client can never cycle a heading.
+  z.object({ type: z.literal("fold"), key: z.string(), folded: z.boolean() }),
   z.object({ type: z.literal("project-open"), project: projectKey, name: z.string().min(1) }),
   z.object({ type: z.literal("project-close"), project: projectKey }),
   z.object({ type: z.literal("session-remove"), sessionID: z.string() }),
@@ -95,6 +97,8 @@ export function projectOf(state: State, sessionID: string) {
 }
 
 export function reduce(state: State, action: Action, admission?: Admission): State {
+  // A fold already in the requested state changes nothing: return the same state, which the store does not save.
+  if (action.type === "fold" && action.folded === state.collapsed.includes(action.key)) return state
   const next = structuredClone(state)
   next.revision++
   if (admission) {
@@ -147,6 +151,11 @@ export function reduce(state: State, action: Action, admission?: Admission): Sta
     next.collapsed = next.collapsed.includes(action.key)
       ? next.collapsed.filter((key) => key !== action.key)
       : [...next.collapsed, action.key]
+    return next
+  }
+  if (action.type === "fold") {
+    const others = next.collapsed.filter((key) => key !== action.key)
+    next.collapsed = action.folded ? [...others, action.key] : others
     return next
   }
   const item = (next.sessions[action.sessionID] ??= { placement: "active", unread: false })

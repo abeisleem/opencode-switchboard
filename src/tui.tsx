@@ -235,9 +235,10 @@ export default Plugin.define({
       if (!id) return
       const project = projectOf(state(), id)
       if (!project) return
-      if (state().collapsed.includes(project)) await act({ type: "collapse", key: project })
+      // Unfold rather than toggle: a stale state() must never fold what it means to reveal.
+      if (state().collapsed.includes(project)) await act({ type: "fold", key: project, folded: false })
       if (state().sessions[id]?.placement === "later" && state().collapsed.includes(laterKey(project)))
-        await act({ type: "collapse", key: laterKey(project) })
+        await act({ type: "fold", key: laterKey(project), folded: false })
       reveal(`session:${id}`)
     }
     async function openInbox() {
@@ -336,7 +337,7 @@ export default Plugin.define({
           (global ? location.directory : location.project.canonical).split("/").filter(Boolean).at(-1) ||
           key
         await act({ type: "project-open", project: key, name })
-      } else if (state().collapsed.includes(key)) await act({ type: "collapse", key })
+      } else if (state().collapsed.includes(key)) await act({ type: "fold", key, folded: false })
       reveal(`heading:${key}`)
     }
     /**
@@ -434,6 +435,8 @@ export default Plugin.define({
                   { bind: "down,j", run: actions.next },
                   { bind: "up,k", run: actions.previous },
                   { bind: "return", run: actions.enter },
+                  { bind: "left", run: () => actions.fold(true) },
+                  { bind: "right", run: () => actions.fold(false) },
                   { bind: "u", run: actions.unread },
                   { bind: "a", run: () => actions.place("active") },
                   { bind: "l", run: () => actions.place("later") },

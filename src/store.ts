@@ -12,8 +12,10 @@ export function createInboxStore(
   }
   function act(action: Action) {
     const result = queue.then(async () => {
-      const next = await apply(await snapshot(), action)
-      await storage.set("inbox-v1", next)
+      const current = await snapshot()
+      const next = await apply(current, action)
+      // An action that changes nothing (e.g. key repeat on a fold) returns the same state; skip the write.
+      if (next !== current) await storage.set("inbox-v1", next)
       return next
     })
     queue = result.catch(() => {})

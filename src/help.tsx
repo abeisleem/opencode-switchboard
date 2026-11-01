@@ -11,6 +11,7 @@ export type DialogTheme = {
 const KEYS = [
   ["↑/↓ j/k", "Move"],
   ["enter", "Open session, or fold a heading"],
+  ["←/→", "Fold / unfold heading"],
   ["u", "Mark read/unread"],
   ["a / l", "Move to Active / Later"],
   ["x", "Close session or project"],

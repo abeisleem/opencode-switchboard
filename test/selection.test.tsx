@@ -184,6 +184,55 @@ test("rapid removals select the next survivor, then the previous survivor at the
   }
 })
 
+test("← folds and → unfolds the highlighted heading, and neither ever toggles", async () => {
+  const input = fixture()
+  // Rows: Before, before, Work, a, b, Later, c, Z after, after.
+  input.state.sessions.c = { placement: "later", unread: false }
+  const { app, controls, calls } = await harness(input)
+  try {
+    const folds = () => calls.filter((call) => call.type === "fold")
+    for (let i = 0; i < 2; i++) controls.next()
+    // Already unfolded: → only ever asks to unfold.
+    for (let i = 0; i < 3; i++) controls.fold(false)
+    expect(folds()).toEqual(Array(3).fill({ type: "fold", key: "Work", folded: false }))
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toContain("▾ Work/")
+    calls.length = 0
+    for (let i = 0; i < 3; i++) controls.fold(true)
+    expect(folds()).toEqual(Array(3).fill({ type: "fold", key: "Work", folded: true }))
+    expect(calls.some((call) => call.type === "collapse")).toBe(false)
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toContain("▸ Work/")
+    controls.fold(false)
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toMatch(/▾ Work\/[^]*Task a[^]*▾ Later[^]*Task c/)
+    // The project's Later heading folds the same way.
+    for (let i = 0; i < 3; i++) controls.next()
+    calls.length = 0
+    controls.fold(true)
+    controls.fold(true)
+    expect(folds()).toEqual(Array(2).fill({ type: "fold", key: "Work/later", folded: true }))
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toContain("▸ Later · 1")
+    expect(app.captureCharFrame()).not.toContain("Task c")
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("← and → do nothing on a session row", async () => {
+  const { app, controls, calls } = await harness(fixture())
+  try {
+    for (let i = 0; i < 3; i++) controls.next()
+    calls.length = 0
+    controls.fold(true)
+    controls.fold(false)
+    expect(calls).toEqual([])
+  } finally {
+    await app.dispose()
+  }
+})
+
 test("the final session falls back to its own project header, not another project", async () => {
   const { app, controls, calls } = await harness(fixture(["a"]))
   try {
