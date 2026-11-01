@@ -101,6 +101,9 @@ export default Plugin.define({
     // Set when the switchboard itself navigates home (e.g. after closing a project), so the
     // home screen it lands on does not count as choosing that project.
     let navigatedHome = false
+    // The session the switchboard itself went back to after closing the current row. The route effect still
+    // visits it, but leaves keyboard focus where it is: in the panel, so `x` can close the next row.
+    let wentBack: string | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     let membership = ""
     let refreshAgain = false
@@ -178,11 +181,13 @@ export default Plugin.define({
      * subagent stays open; navigating to the route already shown would not notify the route effect anyway.
      */
     function navigate(id: string | null) {
-      if (routeRoot() !== id) {
+      const moved = routeRoot() !== id
+      if (moved) {
         navigatedHome = id === null
         ctx.ui.router.navigate(id ? { type: "session", sessionID: id } : { type: "home" })
       }
       showPanel()
+      return moved
     }
     /**
      * Leaves a session whose row this TUI closed or saw deleted: to the most recent session still open, else the
@@ -191,7 +196,8 @@ export default Plugin.define({
     function goBack(closed: string) {
       const destination = fallbackSession(state(), history.recent, closed)
       show(destination)
-      navigate(destination)
+      wentBack = destination ?? undefined
+      if (!navigate(destination)) wentBack = undefined
     }
     /** Applies an action from this TUI; if it closed the row of the session shown here, goes back. */
     async function change(action: Action) {
@@ -521,7 +527,14 @@ export default Plugin.define({
               return route.type === "session" ? route.sessionID : null
             },
             (id) => {
+              const quiet = id !== null && id === wentBack
+              wentBack = undefined
               if (!enabled || !id) return
+              // Going back after a close moves focus only if the closer asked for it (see `closeCurrent`).
+              if (quiet) {
+                void visit(id)
+                return
+              }
               // Opened elsewhere, e.g. the native session list: the panel remounts beside it and
               // the host focuses the panel, so hand focus to the conversation as a panel open does.
               focusConversation = true

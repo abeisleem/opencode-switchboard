@@ -46,15 +46,18 @@ async function harness(
     approvals?: () => string[]
     focus?: FakeFocus
     shortcuts?: (id: string) => readonly string[]
+    /** Sessions that belong to a second open project, "other", instead of "work". */
+    other?: string[]
   } = {},
 ) {
   let saved = initialState()
   saved.revision = 1
   saved.projects.work = { name: "Work", open: true, sessions: options.members ?? ["a", "b"] }
+  if (options.other) saved.projects.other = { name: "Other", open: true, sessions: options.other }
   const sessions = ["a", "b", "c"].map((id) => ({
     id,
     title: `Task ${id}`,
-    projectID: "work",
+    projectID: options.other?.includes(id) ? "other" : "work",
     location: { directory: "/work" },
     time: {},
   }))
@@ -92,6 +95,7 @@ async function harness(
   const [route, navigate] = createSignal<Route>(options.route ?? { type: "session", sessionID: "b" })
   const layers: (() => Layer)[] = []
   const actions: Action[] = []
+  const dispatched: string[] = []
   let render!: () => JSX.Element
   let renderApp!: () => JSX.Element
   let cleanup!: ReturnType<typeof plugin.setup>
@@ -114,7 +118,12 @@ async function harness(
           },
         },
       }),
-      project: { list: async () => [{ id: "work", name: "Work", canonical: "/work" }] },
+      project: {
+        list: async () => [
+          { id: "work", name: "Work", canonical: "/work" },
+          { id: "other", name: "Other", canonical: "/other" },
+        ],
+      },
       session: {
         get,
         active: async () => {
@@ -182,7 +191,7 @@ async function harness(
       },
     },
     keymap: {
-      dispatch: noop,
+      dispatch: (command: string) => dispatched.push(command),
       shortcuts: options.shortcuts ?? (() => []),
       layer: (factory: () => Layer) => {
         layers.push(factory)
@@ -209,6 +218,7 @@ async function harness(
     route,
     navigate,
     actions,
+    dispatched,
     rpc,
     saved: () => saved,
     sessions,
@@ -383,6 +393,82 @@ test("leader-w closes the viewed session rather than the panel cursor and keeps 
     expect(run.actions.filter((action) => action.type === "session-remove")).toEqual([
       { type: "session-remove", sessionID: "b" },
     ])
+  } finally {
+    await run.dispose()
+  }
+})
+
+/** The command that hands keyboard focus from the panel to the conversation; see `returnFocus` in src/tui.tsx. */
+const FOCUS_CONVERSATION = "pane.focus.left"
+
+test("x on the current session's row goes back but keeps focus in the panel", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    run.dispatched.length = 0
+    run.actions.length = 0
+    await run.key("x") // The cursor starts on the current session, b.
+    expect(await until(() => JSON.stringify(run.route()) === '{"type":"session","sessionID":"a"}')).toBe(true)
+    await Bun.sleep(10) // Let any deferred focus hand-off run.
+    expect(run.dispatched).not.toContain(FOCUS_CONVERSATION)
+    // The fallback is still visited: recorded as current and marked read.
+    expect(run.actions).toContainEqual({ type: "visit", sessionID: "a", observed: 0 })
+    await run.frame()
+    expect(run.bold("Task a")).toBe(true)
+    // Focus stayed in the panel, so x closes the next row too.
+    await run.key("x")
+    expect(await until(() => run.saved().projects.work?.sessions.length === 0)).toBe(true)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("closing the project holding the current session goes back but keeps focus in the panel", async () => {
+  const run = await harness({ other: ["c"] })
+  try {
+    await run.open()
+    await run.frame()
+    run.dispatched.length = 0
+    run.actions.length = 0
+    await run.key("up,k")
+    await run.key("up,k") // Cursor on the Work heading; the conversation remains b.
+    await run.key("x")
+    expect(await until(() => JSON.stringify(run.route()) === '{"type":"session","sessionID":"c"}')).toBe(true)
+    await Bun.sleep(10)
+    expect(run.saved().projects.work?.open).toBe(false)
+    expect(run.dispatched).not.toContain(FOCUS_CONVERSATION)
+    expect(run.actions).toContainEqual({ type: "visit", sessionID: "c", observed: 0 })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("leader-w goes back and hands focus to the conversation", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    run.dispatched.length = 0
+    await run.close().run()
+    expect(JSON.stringify(run.route())).toBe('{"type":"session","sessionID":"a"}')
+    expect(await until(() => run.dispatched.includes(FOCUS_CONVERSATION))).toBe(true)
+    expect(run.dispatched.filter((command) => command === FOCUS_CONVERSATION)).toHaveLength(1)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("opening a session from the panel hands focus to its conversation", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    run.dispatched.length = 0
+    await run.key("up,k")
+    await run.key("return")
+    expect(JSON.stringify(run.route())).toBe('{"type":"session","sessionID":"a"}')
+    expect(await until(() => run.dispatched.includes(FOCUS_CONVERSATION))).toBe(true)
   } finally {
     await run.dispose()
   }

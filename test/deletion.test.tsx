@@ -53,6 +53,7 @@ async function harness(ids?: string[]) {
   const host = await backend(ids)
   const listeners = new Map<string, (event: { data: { sessionID: string } }) => void>()
   const [route, setRoute] = createSignal<Route>({ type: "session", sessionID: "b" })
+  const dispatched: string[] = []
   let open!: () => Promise<void>
   let cleanup!: ReturnType<typeof tui.setup>
   const noop = () => {}
@@ -114,7 +115,7 @@ async function harness(ids?: string[]) {
       tabs: { enabled: () => false },
     },
     keymap: {
-      dispatch: noop,
+      dispatch: (command: string) => dispatched.push(command),
       layer: (factory: () => { commands: { id?: string; run: () => Promise<void> }[] }) => {
         open = factory().commands.find((command) => command.id === "opencode-switchboard.open")!.run
       },
@@ -130,6 +131,7 @@ async function harness(ids?: string[]) {
     route,
     setRoute,
     listeners,
+    dispatched,
     delete(id: string) {
       host.existing.delete(id)
       listeners.get("session.deleted")?.({ data: { sessionID: id } })
@@ -217,6 +219,19 @@ test("native deletion of a session this TUI has left does not navigate it", asyn
     await Bun.sleep(0)
     expect(host.route()).toEqual({ type: "session", sessionID: "c" })
     expect((await host.rpc.snapshot()).projects.work?.sessions).toEqual(["a", "c"])
+  } finally {
+    await host.close()
+  }
+})
+
+test("native deletion of the current session goes back but leaves keyboard focus where it is", async () => {
+  const host = await harness()
+  try {
+    host.dispatched.length = 0
+    host.delete("b")
+    await Bun.sleep(10) // Drain the RPC, the route effect, and any deferred focus hand-off.
+    expect(host.route()).toEqual({ type: "session", sessionID: "a" })
+    expect(host.dispatched).not.toContain("pane.focus.left")
   } finally {
     await host.close()
   }
