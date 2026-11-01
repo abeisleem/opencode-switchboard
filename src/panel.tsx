@@ -179,6 +179,8 @@ export type PanelProps = {
     enter: () => void
     unread: () => void
     place: (placement: Placement) => void
+    /** Folds or unfolds the highlighted heading; does nothing on a session row. */
+    fold: (folded: boolean) => void
     remove: () => void
     /** Moves the cursor to a row key (see rowKey). */
     reveal: (key: string) => void
@@ -322,6 +324,11 @@ export function InboxPanel(props: PanelProps) {
       const row = current()
       if (row?.kind === "session" && section(row.session, props.state) !== placement)
         props.act({ type: "place", sessionID: row.session.id, placement })
+    },
+    fold: (folded) => {
+      const row = current()
+      // Always sent, even when the heading already looks that way: the shown state can lag behind the server.
+      if (row?.kind === "heading") props.act({ type: "fold", key: row.key, folded })
     },
     reveal: (key) => {
       setRequested({ key })

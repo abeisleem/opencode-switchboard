@@ -304,6 +304,41 @@ test("switching between Active sessions leaves the project's folded Later folded
   expect(state.collapsed).toContain(laterKey("p"))
 })
 
+test("fold sets a heading's state instead of toggling it, and a repeat changes nothing", () => {
+  const start = openState()
+  let state = reduce(start, { type: "fold", key: "p", folded: true })
+  const folded = state
+  state = reduce(state, { type: "fold", key: "p", folded: true })
+  expect(state.collapsed).toEqual(["p"])
+  // A no-op returns the same state, so the store skips the write and the revision stays put.
+  expect(state).toBe(folded)
+  state = reduce(state, { type: "fold", key: laterKey("p"), folded: true })
+  state = reduce(state, { type: "fold", key: "p", folded: false })
+  expect(state.collapsed).toEqual([laterKey("p")])
+  const unfolded = reduce(start, { type: "fold", key: "p", folded: false })
+  expect(unfolded).toBe(start)
+  expect(unfolded.collapsed).toEqual([])
+})
+
+test("the store does not save an action that changes nothing", async () => {
+  let saved: unknown = reduce(openState(), { type: "fold", key: "p", folded: true })
+  let writes = 0
+  const store = createInboxStore({
+    get: async () => saved,
+    set: async (_key, value) => {
+      writes++
+      saved = value
+    },
+  })
+  const before = (await store.snapshot()).revision
+  await store.act({ type: "fold", key: "p", folded: true })
+  expect(writes).toBe(0)
+  await store.act({ type: "fold", key: "p", folded: false })
+  expect(writes).toBe(1)
+  expect((await store.snapshot()).revision).toBe(before + 1)
+  expect((await store.snapshot()).collapsed).toEqual([])
+})
+
 test("version 1 and 2 state migrates: History closes, Focus becomes Active, filters drop", () => {
   const legacy = (version: number, placement: string) => ({
     ...openState(),

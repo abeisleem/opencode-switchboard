@@ -800,7 +800,7 @@ test("help lists one panel key per line in a muted column, with how to open the 
       expect(cell(app, lines[intro + offset]!.indexOf("ctrl"), intro + offset).fg).toBe("#737aa2")
       expect(cell(app, 3, intro + offset).fg).toBe("#c0caf5")
     }
-    const keys = ["↑/↓ j/k", "enter", "u", "a / l", "x", "esc"]
+    const keys = ["↑/↓ j/k", "enter", "←/→", "u", "a / l", "x", "esc"]
     const first = intro + 4
     const rows = lines.slice(first, first + keys.length)
     expect(rows.map((line) => line.slice(5, 17).trim())).toEqual(keys)

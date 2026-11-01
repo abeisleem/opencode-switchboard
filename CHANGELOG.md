@@ -6,6 +6,9 @@
   session that is in Later still unfolds it.
 - The help dialog (`?`) shows your configured shortcuts, including a custom leader, and lists the shortcut
   that closes the current session's row. A command you have unbound is left out instead of showing Ctrl+X.
+- ← folds and → unfolds the highlighted heading, as in tree views. Pressing either one again leaves the heading
+  as it is. Update the plugin on the server and on every TUI machine together: an older server rejects these
+  keys.
 
 ## 0.1.4 (2026-10-31)
 

@@ -46,6 +46,7 @@ async function harness(
     approvals?: () => string[]
     focus?: FakeFocus
     shortcuts?: (id: string) => readonly string[]
+    collapsed?: string[]
   } = {},
 ) {
   let saved = initialState()
@@ -53,6 +54,7 @@ async function harness(
   saved.selected = "a"
   saved.recent = ["a", "b"]
   saved.projects.work = { name: "Work", open: true, sessions: options.members ?? ["a", "b"] }
+  saved.collapsed = options.collapsed ?? []
   const sessions = ["a", "b", "c"].map((id) => ({
     id,
     title: `Task ${id}`,
@@ -554,6 +556,33 @@ test("the panel binds no manual refresh or details keys", async () => {
     expect(binds).toContain("x")
     expect(binds).not.toContain("r")
     expect(binds).not.toContain("d")
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("the panel folds headings with ← and →", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    const binds = run.binds().flatMap((bind) => bind.split(","))
+    expect(binds).toContain("left")
+    expect(binds).toContain("right")
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("revealing the viewed session unfolds its project without toggling", async () => {
+  // Viewing the saved selection sends no select, whose admission would unfold the project itself.
+  const run = await harness({ collapsed: ["work"], route: { type: "session", sessionID: "a" } })
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.actions).toEqual([{ type: "fold", key: "work", folded: false }])
+    expect(run.actions.some((action) => action.type === "collapse")).toBe(false)
+    expect(run.saved().collapsed).toEqual([])
   } finally {
     await run.dispose()
   }

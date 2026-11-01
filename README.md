@@ -24,7 +24,6 @@ elsewhere. The switchboard replaces the tabs with a panel built for that:
 
 - Reorder projects, and sessions within a project, with keys or by dragging
   ([#9](https://github.com/abeisleem/opencode-switchboard/issues/9)).
-- Fold and unfold headings with ← and → ([#45](https://github.com/abeisleem/opencode-switchboard/issues/45)).
 - The working directory and git branch at the bottom of the panel
   ([#42](https://github.com/abeisleem/opencode-switchboard/issues/42)).
 
@@ -154,6 +153,7 @@ Unread is independent of placement: mark a session unread to come back to it, wh
 | --------------------------------------- | ----------------------------------------------------- |
 | ↑/↓, j/k                                | Move                                                  |
 | Enter                                   | Open session, or fold/unfold heading                  |
+| ←/→                                     | Fold / unfold heading                                 |
 | `u`                                     | Toggle read/unread                                    |
 | `a` / `l`                               | Move to Active / Later                                |
 | `x`                                     | Close session or project (keeps its saved state)      |
