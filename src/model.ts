@@ -37,17 +37,17 @@ const visit = z.object({
 
 export const actionSchema = z.discriminatedUnion("type", [
   visit,
-  // "select", the visit's name before the current session became per TUI, from TUIs older than 0.1.5. OpenCode
+  // "select", the visit's name before the current session became per TUI, from TUIs older than 0.2.0. OpenCode
   // hands the handler the parsed value, so the server only ever sees "visit". Remove the alias in the release
-  // after 0.1.5.
+  // after 0.2.0.
   visit.extend({ type: z.literal("select") }).transform((action) => ({ ...action, type: "visit" as const })),
   z.object({ type: z.literal("read"), sessionID: z.string(), observed: z.number().nonnegative() }),
   z.object({ type: z.literal("unread"), sessionID: z.string() }),
   z.object({
     type: z.literal("place"),
     sessionID: z.string(),
-    // Also accepts "later", the placement's name before Parked, from TUIs older than 0.1.5. OpenCode hands the
-    // handler the parsed value, so "later" is never stored. Remove the alias in the release after 0.1.5.
+    // Also accepts "later", the placement's name before Parked, from TUIs older than 0.2.0. OpenCode hands the
+    // handler the parsed value, so "later" is never stored. Remove the alias in the release after 0.2.0.
     placement: z
       .enum([...placement.options, "later"])
       .transform((value): Placement => (value === "later" ? "parked" : value)),
