@@ -19,7 +19,7 @@ export type DemoSession = {
   prompt: string
   reply: string
   behavior: Behavior
-  later?: boolean
+  parked?: boolean
   /** Runs in a git worktree of the project with this branch name. */
   worktree?: string
 }
@@ -28,7 +28,7 @@ export type DemoProject = {
   name: string
   /** Folded in the panel when the video starts. */
   folded?: boolean
-  laterFolded?: boolean
+  parkedFolded?: boolean
   sessions: DemoSession[]
 }
 
@@ -38,7 +38,7 @@ export const CURRENT = "Fix flaky checkout test"
 export const projects: DemoProject[] = [
   {
     name: "orbit-web",
-    laterFolded: true,
+    parkedFolded: true,
     sessions: [
       {
         title: CURRENT,
@@ -73,7 +73,7 @@ export const projects: DemoProject[] = [
         prompt: "Tidy up the dark mode colors.",
         reply: "Dark mode now uses the design tokens everywhere. Contrast passes WCAG AA.",
         behavior: "read",
-        later: true,
+        parked: true,
       },
       {
         title: "Audit bundle size",
@@ -81,7 +81,7 @@ export const projects: DemoProject[] = [
         reply:
           "Two culprits: a full `lodash` import and an unused chart library. Removing both saves 1.3 MB.",
         behavior: "finished",
-        later: true,
+        parked: true,
       },
     ],
   },
