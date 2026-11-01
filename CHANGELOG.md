@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.5 (unreleased)
+## 0.2.0 (2026-11-01)
 
 Update the plugin on the server and on every TUI machine together. An older server rejects ←, →, parking with
 `p`, and opening a session. A TUI older than this release hides parked sessions until it updates, may jump to
