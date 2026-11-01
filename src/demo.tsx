@@ -55,8 +55,8 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
   seed.recent = ["inbox", "provider"]
   seed.sessions = {
     navigation: { placement: "active", unread: true },
-    keys: { placement: "later", unread: true },
-    theme: { placement: "later", unread: false },
+    keys: { placement: "parked", unread: true },
+    theme: { placement: "parked", unread: false },
   }
   const [state, setState] = createSignal(seed)
   let actions: Parameters<NonNullable<PanelProps["keys"]>>[0]
@@ -68,8 +68,7 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
     if (event.name === "left") actions.fold(true)
     if (event.name === "right") actions.fold(false)
     if (event.name === "u") actions.unread()
-    if (event.name === "a") actions.place("active")
-    if (event.name === "l") actions.place("later")
+    if (event.name === "p") actions.park()
     if (event.name === "x") actions.remove()
     if (event.name === "escape" || event.name === "q") renderer.destroy()
   })

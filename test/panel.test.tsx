@@ -6,7 +6,7 @@ import { createSignal, type JSX } from "solid-js"
 import { DEMO_PALETTE as palette, Demo, demoSessions } from "../src/demo"
 import { HELP_COMMANDS, HelpDialog, helpShortcuts, type HelpShortcuts } from "../src/help"
 import { InboxPanel, tint } from "../src/panel"
-import { initialState, laterKey } from "../src/model"
+import { initialState, parkedKey } from "../src/model"
 import plugin from "../src/tui"
 
 test("panel mirrors the native rail: left indicators, no header, footer help only", async () => {
@@ -41,17 +41,41 @@ test("panel mirrors the native rail: left indicators, no header, footer help onl
   }
 })
 
-test("a and l move the highlighted session between Active and the Later fold", async () => {
+test("p parks the highlighted session, and p again unparks it", async () => {
   const app = await testRender(() => <Demo />, { width: 60, height: 30 })
   try {
     await app.renderOnce()
     await app.mockInput.pressArrow("down")
-    app.mockInput.pressKey("l")
+    app.mockInput.pressKey("p")
     await app.renderOnce()
-    expect(app.captureCharFrame()).toMatch(/▾ api-server[^]*▾ Later[^\n]*\n *\n *\S +Check service health/)
-    app.mockInput.pressKey("a")
+    expect(app.captureCharFrame()).toMatch(/▾ api-server[^]*▾ Parked[^\n]*\n *\n *\S +Check service health/)
+    app.mockInput.pressKey("p")
     await app.renderOnce()
     expect(app.captureCharFrame()).toMatch(/▾ api-server[^\n]*\n *\n *\S +Check service health/)
+    // api-server has no Parked fold left; the one below belongs to dotfiles.
+    expect(app.captureCharFrame().split("▾ dotfiles")[0]).not.toContain("Parked")
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("a and l no longer move a session, and p on a heading changes nothing", async () => {
+  const app = await testRender(() => <Demo />, { width: 60, height: 30 })
+  try {
+    await app.renderOnce()
+    const start = app.captureCharFrame()
+    // The cursor starts on the api-server heading.
+    app.mockInput.pressKey("p")
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toBe(start)
+    await app.mockInput.pressArrow("down")
+    await app.renderOnce()
+    const highlighted = app.captureCharFrame()
+    for (const key of ["l", "a"]) {
+      app.mockInput.pressKey(key)
+      await app.renderOnce()
+      expect(app.captureCharFrame()).toBe(highlighted)
+    }
   } finally {
     await app.dispose()
   }
@@ -556,7 +580,7 @@ test("native session renames refresh mounted rows without waiting for the poll",
 })
 
 for (const width of [26, 46]) {
-  test(`project and session spinners share frames and colors; a folded Later stays quiet at ${width} columns`, async () => {
+  test(`project and session spinners share frames and colors; a folded Parked stays quiet at ${width} columns`, async () => {
     const sessions = demoSessions()
     const state = initialState()
     for (const session of sessions) {
@@ -567,8 +591,8 @@ for (const width of [26, 46]) {
       })
       project.sessions.push(session.id)
     }
-    for (const id of ["index", "keys", "theme"]) state.sessions[id] = { placement: "later", unread: false }
-    state.collapsed = ["api-server", laterKey("dotfiles")]
+    for (const id of ["index", "keys", "theme"]) state.sessions[id] = { placement: "parked", unread: false }
+    state.collapsed = ["api-server", parkedKey("dotfiles")]
     const noop = () => {}
     const app = await testRender(
       () => (
@@ -595,8 +619,8 @@ for (const width of [26, 46]) {
       const before = lines()
       expect(before[1]).toContain("▸ api-server")
       expect(before[3]).toContain("▾ dotfiles")
-      // Parked work never badges its Later heading, folded or not.
-      expect(before[12]!.trim()).toBe("▸ Later · 3")
+      // Parked work never badges its Parked heading, folded or not.
+      expect(before[12]!.trim()).toBe("▸ Parked · 3")
       expect(before[1]).toContain("⠋ 1  • 1")
       expect(cell(app, before[1]!.indexOf("⠋"), 1).fg).toBe(palette.running)
       expect(before[2]!.trim()).toBe("")
@@ -656,29 +680,29 @@ test("project headings read as underlined directories, with triangles dim until 
     for (let x = 3; x < 3 + name.length; x++)
       expect(cell(app, x, y)).toMatchObject({ fg: palette.muted, underline: true, bold: false })
     expect(cell(app, 3 + name.length, y).underline).toBe(false)
-    // Later is a plain muted label: no underline or slash, and a count only once folded.
-    const later = lineOf(app, "Later")
-    expect(app.captureCharFrame().split("\n")[later]!.trim()).toBe("▾ Later")
-    expect(cell(app, 3, later)).toMatchObject({ char: "▾", fg: palette.detail })
-    expect(cell(app, 5, later)).toMatchObject({ char: "L", fg: palette.muted, underline: false })
+    // Parked is a plain muted label: no underline or slash, and a count only once folded.
+    const parked = lineOf(app, "Parked")
+    expect(app.captureCharFrame().split("\n")[parked]!.trim()).toBe("▾ Parked")
+    expect(cell(app, 3, parked)).toMatchObject({ char: "▾", fg: palette.detail })
+    expect(cell(app, 5, parked)).toMatchObject({ char: "P", fg: palette.muted, underline: false })
     // Hovering brightens the triangle with the label.
     await app.mockMouse.moveTo(8, y)
     await app.renderOnce()
     expect(cell(app, 1, y).fg).toBe(palette.text)
     expect(cell(app, 3, y)).toMatchObject({ fg: palette.text, underline: true })
-    await app.mockMouse.moveTo(8, later)
+    await app.mockMouse.moveTo(8, parked)
     await app.renderOnce()
-    expect(cell(app, 3, later).fg).toBe(palette.text)
-    expect(cell(app, 5, later).fg).toBe(palette.text)
-    await app.mockMouse.click(8, later)
+    expect(cell(app, 3, parked).fg).toBe(palette.text)
+    expect(cell(app, 5, parked).fg).toBe(palette.text)
+    await app.mockMouse.click(8, parked)
     await app.renderOnce()
-    expect(app.captureCharFrame().split("\n")[later]!.trim()).toBe("▸ Later · 2")
+    expect(app.captureCharFrame().split("\n")[parked]!.trim()).toBe("▸ Parked · 2")
   } finally {
     await app.dispose()
   }
 })
 
-test("sessions under Later put their indicator under the Later triangle, beside the title", async () => {
+test("parked sessions put their indicator under the Parked triangle, beside the title", async () => {
   const app = await testRender(() => <Demo focused={false} />, { width: 46, height: 30 })
   try {
     await app.renderOnce()
@@ -687,7 +711,7 @@ test("sessions under Later put their indicator under the Later triangle, beside 
     expect(lines[lineOf(app, "Review provider")]).toStartWith(" • Review provider")
     const parked = lineOf(app, "Revisit keybindings")
     expect(lines[parked]).toStartWith("   • Revisit keybindings")
-    expect(cell(app, 3, lineOf(app, "Later")).char).toBe("▾")
+    expect(cell(app, 3, lineOf(app, "Parked")).char).toBe("▾")
     expect(cell(app, 3, parked)).toMatchObject({ char: "•", fg: palette.unread })
     // Titles and worktree lines keep their columns.
     const theme = lineOf(app, "Theme experiments")
@@ -800,17 +824,20 @@ test("help lists one panel key per line in a muted column, with how to open the 
       expect(cell(app, lines[intro + offset]!.indexOf("ctrl"), intro + offset).fg).toBe("#737aa2")
       expect(cell(app, 3, intro + offset).fg).toBe("#c0caf5")
     }
-    const keys = ["↑/↓ j/k", "enter", "←/→", "u", "a / l", "x", "esc"]
+    const keys = ["↑/↓ j/k", "enter", "←/→", "u", "p", "x", "esc"]
     const first = intro + 4
     const rows = lines.slice(first, first + keys.length)
     expect(rows.map((line) => line.slice(5, 17).trim())).toEqual(keys)
+    expect(rows[keys.indexOf("p")]!.slice(17).trim()).toBe("Park or unpark")
     // Every action starts in the same column, in normal text after a muted key.
     for (const [index, line] of rows.entries()) {
       expect(line[17]).not.toBe(" ")
       expect(cell(app, 5, first + index).fg).toBe("#737aa2")
       expect(cell(app, 17, first + index).fg).toBe("#c0caf5")
     }
-    expect(lines.join("\n")).not.toMatch(/Ctrl|Enter|Esc|• unread|Closed sessions|never deletes|Refresh/)
+    expect(lines.join("\n")).not.toMatch(
+      /Ctrl|Enter|Esc|• unread|Closed sessions|never deletes|Refresh|Active|Later/,
+    )
     const ok = lines.findIndex((line) => line.includes(" ok "))
     expect(ok).toBeGreaterThan(intro + keys.length)
     await app.mockMouse.click(lines[ok]!.indexOf("ok"), ok)

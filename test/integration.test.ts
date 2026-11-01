@@ -73,12 +73,12 @@ test("real private server loads only in its sandbox, shares actions, and persist
     const b = await client.session.create({ title: "Inbox integration B", location: { directory } })
     await rpc.act({ type: "select", sessionID: a.id, observed: 0 }, options)
     await rpc.act({ type: "select", sessionID: b.id, observed: 0 }, options)
-    await rpc.act({ type: "place", sessionID: b.id, placement: "later" }, options)
+    await rpc.act({ type: "place", sessionID: b.id, placement: "parked" }, options)
     const marked = await rpc.act({ type: "unread", sessionID: b.id }, options)
     // Marking unread neither navigates nor changes placement.
     expect(marked.selected).toBe(b.id)
     expect(marked.sessions[b.id]?.unread).toBe(true)
-    expect(marked.sessions[b.id]?.placement).toBe("later")
+    expect(marked.sessions[b.id]?.placement).toBe("parked")
     const catalog = await loadCatalog(client, marked)
     expect(catalog.sessions.map((s) => s.id)).toContain(b.id)
     expect(catalog.warning).toBe("")
@@ -95,7 +95,7 @@ test("real private server loads only in its sandbox, shares actions, and persist
     expect((await rpc.snapshot({}, options)).projects[project]?.open).toBe(false)
     const restored = await rpc.act({ type: "project-open", project, name: "Project" }, options)
     expect(restored.sessions[b.id]?.unread).toBe(true)
-    expect(restored.sessions[b.id]?.placement).toBe("later")
+    expect(restored.sessions[b.id]?.placement).toBe("parked")
     expect(restored.projects[project]?.sessions).toEqual([b.id])
     expect((await client.session.get({ sessionID: a.id })).time.archived).toBeUndefined()
     await rpc.act({ type: "project-close", project }, options)
@@ -105,7 +105,7 @@ test("real private server loads only in its sandbox, shares actions, and persist
     expect(visited.projects[project]?.sessions).toEqual([c.id, b.id])
     // Organizing a session that was never visited also admits it.
     const d = await client.session.create({ title: "Postponed without a visit", location: { directory } })
-    const placed = await rpc.act({ type: "place", sessionID: d.id, placement: "later" }, options)
+    const placed = await rpc.act({ type: "place", sessionID: d.id, placement: "parked" }, options)
     expect(placed.projects[project]?.sessions).toEqual([d.id, c.id, b.id])
     // A newly opened project starts empty rather than importing its history.
     const fresh = await rpc.act({ type: "project-open", project: elsewhere, name: "Elsewhere" }, options)

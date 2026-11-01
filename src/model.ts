@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const placement = z.enum(["active", "later"])
+export const placement = z.enum(["active", "parked"])
 export const sessionStateSchema = z.object({
   placement: placement.default("active"),
   unread: z.boolean().default(false),
@@ -11,7 +11,7 @@ const projectKey = z
   .min(1)
   .refine((key) => !Object.hasOwn(Object.prototype, key), "Invalid project key")
 export const stateSchema = z.object({
-  version: z.literal(3),
+  version: z.literal(4),
   revision: z.number(),
   navigation: z.number(),
   selected: z.string().nullable(),
@@ -36,7 +36,15 @@ export const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("select"), sessionID: z.string(), observed: z.number().nonnegative() }),
   z.object({ type: z.literal("read"), sessionID: z.string(), observed: z.number().nonnegative() }),
   z.object({ type: z.literal("unread"), sessionID: z.string() }),
-  z.object({ type: z.literal("place"), sessionID: z.string(), placement }),
+  z.object({
+    type: z.literal("place"),
+    sessionID: z.string(),
+    // Also accepts "later", the placement's name before Parked, from TUIs older than 0.1.5. OpenCode hands the
+    // handler the parsed value, so "later" is never stored. Remove the alias in the release after 0.1.5.
+    placement: z
+      .enum([...placement.options, "later"])
+      .transform((value): Placement => (value === "later" ? "parked" : value)),
+  }),
   z.object({ type: z.literal("collapse"), key: z.string() }),
   // Sets a fold instead of toggling it, so key repeat or a second client can never cycle a heading.
   z.object({ type: z.literal("fold"), key: z.string(), folded: z.boolean() }),
@@ -62,7 +70,7 @@ export type Session = {
 
 export function initialState(): State {
   return {
-    version: 3,
+    version: 4,
     revision: 0,
     navigation: 0,
     selected: null,
@@ -75,7 +83,8 @@ export function initialState(): State {
 
 export type Admission = { project: string; name: string; sessions: string[] }
 
-export const laterKey = (project: string) => `${project}/later`
+/** A project's Parked fold. The prefix keeps it from equaling a project key, which may be a directory path. */
+export const parkedKey = (project: string) => `parked:${project}`
 
 export function workingSet(sessions: Session[], state: State) {
   const catalog = new Map(sessions.map((session) => [session.id, session]))
@@ -166,10 +175,10 @@ export function reduce(state: State, action: Action, admission?: Admission): Sta
     item.seen = Math.max(item.seen ?? 0, action.observed)
   }
   if (action.type === "select") {
-    // Opening a session inside a folded Later section reveals it.
-    // The server admits every selection, so check placement: an Active selection leaves Later folded.
-    if (admission && item.placement === "later")
-      next.collapsed = next.collapsed.filter((key) => key !== laterKey(admission.project))
+    // Opening a session inside a folded Parked section reveals it.
+    // The server admits every selection, so check placement: an unparked selection leaves Parked folded.
+    if (admission && item.placement === "parked")
+      next.collapsed = next.collapsed.filter((key) => key !== parkedKey(admission.project))
     next.selected = action.sessionID
     next.recent = [action.sessionID, ...next.recent.filter((id) => id !== action.sessionID)].slice(0, 50)
     next.navigation++
@@ -215,7 +224,7 @@ export function rowDetail(row: Row) {
   return row.session.detail === "main" ? "" : (row.session.detail.split("/").filter(Boolean).at(-1) ?? "")
 }
 
-/** Project → Active sessions, then one Later fold. Projects show even before their sessions load. */
+/** Project → its unparked sessions, then one Parked fold. Projects show even before their sessions load. */
 export function rows(sessions: Session[], state: State): Row[] {
   const working = workingSet(sessions, state)
   return Object.keys(state.projects)
@@ -235,24 +244,24 @@ export function rows(sessions: Session[], state: State): Row[] {
         },
       ]
       if (closed) return result
-      const later = members.filter((session) => section(session, state) === "later")
+      const parked = members.filter((session) => section(session, state) === "parked")
       result.push(
         ...members
           .filter((session) => section(session, state) === "active")
           .map((session): Row => ({ kind: "session", session, depth: 1 })),
       )
-      if (!later.length) return result
-      const folded = state.collapsed.includes(laterKey(project))
+      if (!parked.length) return result
+      const folded = state.collapsed.includes(parkedKey(project))
       result.push({
         kind: "heading",
-        key: laterKey(project),
+        key: parkedKey(project),
         closed: folded,
-        title: folded ? `Later · ${later.length}` : "Later",
+        title: folded ? `Parked · ${parked.length}` : "Parked",
         depth: 1,
         // Parked work stays quiet; a folded project's badges still count it.
         badges: [],
       })
-      if (!folded) result.push(...later.map((session): Row => ({ kind: "session", session, depth: 2 })))
+      if (!folded) result.push(...parked.map((session): Row => ({ kind: "session", session, depth: 2 })))
       return result
     })
 }

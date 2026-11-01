@@ -178,7 +178,8 @@ export type PanelProps = {
     previous: () => void
     enter: () => void
     unread: () => void
-    place: (placement: Placement) => void
+    /** Parks the highlighted session, or unparks it if parked; does nothing on a heading. */
+    park: () => void
     /** Folds or unfolds the highlighted heading; does nothing on a session row. */
     fold: (folded: boolean) => void
     remove: () => void
@@ -320,10 +321,12 @@ export function InboxPanel(props: PanelProps) {
             : { type: "unread", sessionID: row.session.id },
         )
     },
-    place: (placement) => {
+    park: () => {
       const row = current()
-      if (row?.kind === "session" && section(row.session, props.state) !== placement)
-        props.act({ type: "place", sessionID: row.session.id, placement })
+      if (row?.kind !== "session") return
+      // Send the target placement, not a toggle, so a repeated press or a second client cannot flip it back.
+      const placement: Placement = section(row.session, props.state) === "parked" ? "active" : "parked"
+      props.act({ type: "place", sessionID: row.session.id, placement })
     },
     fold: (folded) => {
       const row = current()

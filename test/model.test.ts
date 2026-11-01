@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test"
 import {
+  actionSchema,
   initialState,
-  laterKey,
+  parkedKey,
   reduce,
   rows,
   unread,
@@ -10,7 +11,7 @@ import {
   type Session,
 } from "../src/model"
 import { createInboxStore } from "../src/store"
-import { readState } from "../src/migrate"
+import { readState, steps } from "../src/migrate"
 import { followRoute } from "../src/selection"
 
 const session: Session = {
@@ -35,7 +36,7 @@ function openState() {
 }
 
 test("all unread/placement combinations are independent, including never-run sessions", () => {
-  for (const place of ["active", "later"] as const) {
+  for (const place of ["active", "parked"] as const) {
     let state = reduce(initialState(), { type: "place", sessionID: "b", placement: place })
     state = reduce(state, { type: "unread", sessionID: "b" })
     expect(unread({ ...session, idle: 0 }, state)).toBe(true)
@@ -45,7 +46,7 @@ test("all unread/placement combinations are independent, including never-run ses
   }
 })
 
-test("a project containing only Active sessions has no redundant subgroup", () => {
+test("a project without parked sessions has no redundant subgroup", () => {
   const result = rows([session], openState())
   expect(result).toHaveLength(2)
   expect(result[0]).toMatchObject({ kind: "heading", title: "Project", depth: 0 })
@@ -67,10 +68,10 @@ test("collapsed headings expose activity counts alongside attention and unread c
   state = reduce(state, { type: "collapse", key: "p" })
   expect(rows(sessions, state)[0]).toMatchObject({ badges: [] })
   for (const item of sessions)
-    state = reduce(state, { type: "place", sessionID: item.id, placement: "later" })
-  state = reduce(state, { type: "collapse", key: laterKey("p") })
-  // A folded Later stays quiet; its sessions still count toward the folded project.
-  expect(rows(sessions, state)[1]).toMatchObject({ title: "Later · 2", badges: [] })
+    state = reduce(state, { type: "place", sessionID: item.id, placement: "parked" })
+  state = reduce(state, { type: "collapse", key: parkedKey("p") })
+  // A folded Parked stays quiet; its sessions still count toward the folded project.
+  expect(rows(sessions, state)[1]).toMatchObject({ title: "Parked · 2", badges: [] })
   state = reduce(state, { type: "collapse", key: "p" })
   expect(rows(sessions, state)[0]).toMatchObject({ badges })
 })
@@ -92,8 +93,8 @@ test("invalid persisted state fails visibly rather than resetting user organizat
   await expect(store.snapshot()).rejects.toThrow()
 })
 
-test("closing a project hides it without losing membership, unread or Later", () => {
-  let state = reduce(openState(), { type: "place", sessionID: "b", placement: "later" })
+test("closing a project hides it without losing membership, unread or parked sessions", () => {
+  let state = reduce(openState(), { type: "place", sessionID: "b", placement: "parked" })
   state = reduce(state, { type: "unread", sessionID: "b" })
   const before = structuredClone(state.sessions)
   state = reduce(state, { type: "project-close", project: "p" })
@@ -234,26 +235,26 @@ test("shared selection is followed without leaving its conversation family", () 
 const shape = (sessions: Session[], state: ReturnType<typeof openState>) =>
   rows(sessions, state).map((row) => [row.kind === "heading" ? row.title : row.session.id, row.depth])
 
-test("Active sessions sit under the project; Later is one fold after them", () => {
-  let state = reduce(openState(), { type: "place", sessionID: "b", placement: "later" })
+test("unparked sessions sit under the project; Parked is one fold after them", () => {
+  let state = reduce(openState(), { type: "place", sessionID: "b", placement: "parked" })
   const sessions = [{ ...session, id: "a" }, session]
   expect(shape(sessions, state)).toEqual([
     ["Project", 0],
     ["a", 1],
-    ["Later", 1],
+    ["Parked", 1],
     ["b", 2],
   ])
-  state = reduce(state, { type: "collapse", key: laterKey("p") })
+  state = reduce(state, { type: "collapse", key: parkedKey("p") })
   expect(shape(sessions, state)).toEqual([
     ["Project", 0],
     ["a", 1],
-    ["Later · 1", 1],
+    ["Parked · 1", 1],
   ])
 })
 
-test("moving between Active and Later keeps unread and membership", () => {
+test("parking and unparking keeps unread and membership", () => {
   let state = reduce(openState(), { type: "unread", sessionID: "b" })
-  state = reduce(state, { type: "place", sessionID: "b", placement: "later" })
+  state = reduce(state, { type: "place", sessionID: "b", placement: "parked" })
   state = reduce(state, { type: "place", sessionID: "b", placement: "active" })
   expect(state.sessions.b).toEqual({ placement: "active", unread: true })
   expect(state.projects.p?.sessions).toEqual(["a", "b"])
@@ -269,15 +270,15 @@ test("a newly opened project is empty and still shows its heading", () => {
   expect(shape([], state)).toEqual([["Q", 0]])
 })
 
-test("opening a session starts a new project with only that session and unfolds its Later", () => {
-  let state = reduce(openState(), { type: "place", sessionID: "b", placement: "later" })
-  state = reduce(state, { type: "collapse", key: laterKey("p") })
+test("opening a session starts a new project with only that session and unfolds its Parked fold", () => {
+  let state = reduce(openState(), { type: "place", sessionID: "b", placement: "parked" })
+  state = reduce(state, { type: "collapse", key: parkedKey("p") })
   state = reduce(
     state,
     { type: "select", sessionID: "b", observed: 0 },
     { project: "p", name: "Project", sessions: ["b"] },
   )
-  expect(state.collapsed).not.toContain(laterKey("p"))
+  expect(state.collapsed).not.toContain(parkedKey("p"))
   state = reduce(
     state,
     { type: "select", sessionID: "n", observed: 0 },
@@ -286,22 +287,22 @@ test("opening a session starts a new project with only that session and unfolds 
   expect(state.projects.new?.sessions).toEqual(["n"])
 })
 
-test("switching between Active sessions leaves the project's folded Later folded", () => {
+test("switching between unparked sessions leaves the project's folded Parked folded", () => {
   let state = reduce(
     initialState(),
     { type: "project-open", project: "p", name: "Project" },
     { project: "p", name: "Project", sessions: ["a", "b", "c"] },
   )
-  state = reduce(state, { type: "place", sessionID: "c", placement: "later" })
-  state = reduce(state, { type: "collapse", key: laterKey("p") })
-  // The server attaches an admission to every select, Active or Later.
+  state = reduce(state, { type: "place", sessionID: "c", placement: "parked" })
+  state = reduce(state, { type: "collapse", key: parkedKey("p") })
+  // The server attaches an admission to every select, parked or not.
   for (const id of ["a", "b"])
     state = reduce(
       state,
       { type: "select", sessionID: id, observed: 0 },
       { project: "p", name: "Project", sessions: [id] },
     )
-  expect(state.collapsed).toContain(laterKey("p"))
+  expect(state.collapsed).toContain(parkedKey("p"))
 })
 
 test("fold sets a heading's state instead of toggling it, and a repeat changes nothing", () => {
@@ -312,9 +313,9 @@ test("fold sets a heading's state instead of toggling it, and a repeat changes n
   expect(state.collapsed).toEqual(["p"])
   // A no-op returns the same state, so the store skips the write and the revision stays put.
   expect(state).toBe(folded)
-  state = reduce(state, { type: "fold", key: laterKey("p"), folded: true })
+  state = reduce(state, { type: "fold", key: parkedKey("p"), folded: true })
   state = reduce(state, { type: "fold", key: "p", folded: false })
-  expect(state.collapsed).toEqual([laterKey("p")])
+  expect(state.collapsed).toEqual([parkedKey("p")])
   const unfolded = reduce(start, { type: "fold", key: "p", folded: false })
   expect(unfolded).toBe(start)
   expect(unfolded.collapsed).toEqual([])
@@ -355,14 +356,126 @@ test("version 1 and 2 state migrates: History closes, Focus becomes Active, filt
   expect(fromHistory.projects.p?.sessions).toEqual(["a"])
   expect(fromHistory.sessions.b).toEqual({ placement: "active", unread: true, seen: 5 })
   const fromFocus = readState(legacy(2, "focus"))
-  expect(fromFocus.version).toBe(3)
+  expect(fromFocus.version).toBe(4)
   expect(fromFocus.projects.p?.sessions).toEqual(["a", "b"])
   expect(fromFocus.sessions.b?.placement).toBe("active")
-  expect(fromFocus.sessions.a?.placement).toBe("later")
-  expect(fromFocus.collapsed).toEqual(["p/later"])
+  expect(fromFocus.sessions.a?.placement).toBe("parked")
+  expect(fromFocus.collapsed).toEqual(["parked:p"])
   expect(fromFocus).not.toHaveProperty("view")
   expect(fromFocus).not.toHaveProperty("query")
   expect(readState(fromFocus)).toEqual(fromFocus)
+})
+
+test("step 2 → 3 keeps Later and its fold, retires the other placements' folds", () => {
+  const step = steps.find((candidate) => candidate.from === 2)!
+  const v2 = {
+    ...openState(),
+    version: 2,
+    collapsed: ["p", "p/history", "p/focus", "p/active", "p/later"],
+    sessions: { a: { placement: "later" }, b: { placement: "focus", unread: true } },
+  }
+  expect(step.up(step.schema.parse(v2) as never)).toEqual({
+    ...openState(),
+    version: 3,
+    collapsed: ["p", "p/later"],
+    sessions: { a: { placement: "later", unread: false }, b: { placement: "active", unread: true } },
+  })
+})
+
+/** Version 3 state, as 0.1.4 saved it. */
+function v3State() {
+  return {
+    ...openState(),
+    version: 3,
+    selected: "b",
+    recent: ["b", "a"],
+    projects: {
+      p: { name: "Project", open: true, sessions: ["a", "b"] },
+      "/home/notes": { name: "notes", open: false, sessions: ["c"] },
+    },
+    collapsed: ["p", "p/later", "/home/notes/later", "x/later", "/home/notes"],
+    sessions: {
+      a: { placement: "later", unread: true, seen: 3 },
+      b: { placement: "active", unread: false },
+      c: { placement: "later", unread: false, seen: 1 },
+    },
+  }
+}
+
+test("step 3 → 4 renames Later to Parked and moves only saved projects' Later folds to the parked: prefix", () => {
+  const step = steps.find((candidate) => candidate.from === 3)!
+  expect(step.to).toBe(4)
+  const migrated = step.up(step.schema.parse(v3State()) as never)
+  expect(migrated).toEqual({
+    ...v3State(),
+    version: 4,
+    // A project fold keeps its key; "x/later" names no saved project, so it is left alone.
+    collapsed: ["p", "parked:p", "parked:/home/notes", "x/later", "/home/notes"],
+    sessions: {
+      a: { placement: "parked", unread: true, seen: 3 },
+      b: { placement: "active", unread: false },
+      c: { placement: "parked", unread: false, seen: 1 },
+    },
+  })
+  expect(readState(v3State())).toEqual(stateSchema.parse(migrated))
+})
+
+test("version 1 state migrates through every step to the current version without losing organization", () => {
+  const v1 = {
+    version: 1,
+    revision: 7,
+    navigation: 2,
+    selected: "a",
+    recent: ["a", "b"],
+    collapsed: ["q", "p/later", "p/history"],
+    projects: {
+      p: { name: "Project", open: true, sessions: ["a", "b", "c"] },
+      q: { name: "Q", open: false, sessions: ["d"] },
+    },
+    sessions: {
+      a: { placement: "focus", unread: true, seen: 4 },
+      b: { placement: "later", unread: false, seen: 2 },
+      c: { placement: "history", unread: true },
+      d: { placement: "active", unread: true },
+    },
+  }
+  const migrated = readState(v1)
+  expect(migrated).toEqual({
+    version: 4,
+    revision: 7,
+    navigation: 2,
+    selected: "a",
+    recent: ["a", "b"],
+    collapsed: ["q", "parked:p"],
+    projects: {
+      // History closes membership; everything else, open or closed, is kept.
+      p: { name: "Project", open: true, sessions: ["a", "b"] },
+      q: { name: "Q", open: false, sessions: ["d"] },
+    },
+    sessions: {
+      a: { placement: "active", unread: true, seen: 4 },
+      b: { placement: "parked", unread: false, seen: 2 },
+      c: { placement: "active", unread: true },
+      d: { placement: "active", unread: true },
+    },
+  })
+})
+
+test("reading state is idempotent from every saved version", () => {
+  const saved = [
+    { ...openState(), version: 1, sessions: { b: { placement: "history" } } },
+    { ...openState(), version: 2, collapsed: ["p/later"], sessions: { b: { placement: "later" } } },
+    v3State(),
+    reduce(openState(), { type: "place", sessionID: "b", placement: "parked" }),
+  ]
+  for (const value of saved) expect(readState(readState(value))).toEqual(readState(value))
+})
+
+test("the place action still accepts Later from older TUIs and stores it as parked", () => {
+  const action = actionSchema.parse({ type: "place", sessionID: "b", placement: "later" })
+  expect(action).toEqual({ type: "place", sessionID: "b", placement: "parked" })
+  expect(reduce(openState(), action).sessions.b?.placement).toBe("parked")
+  expect(() => actionSchema.parse({ type: "place", sessionID: "b", placement: "focus" })).toThrow()
 })
 
 test("migration does not close the currently viewed legacy History session", () => {
@@ -374,4 +487,32 @@ test("migration does not close the currently viewed legacy History session", () 
   })
   expect(migrated.projects.p?.sessions).toContain("b")
   expect(migrated.sessions.b).toEqual({ placement: "active", unread: true })
+})
+
+test("the migration steps form one chain that ends at the current version", () => {
+  expect(steps.map((step) => [step.from, step.to])).toEqual(steps.map((_, index) => [index + 1, index + 2]))
+  expect(steps.at(-1)?.to).toBe(stateSchema.shape.version.value)
+})
+
+test("step 1 → 2 only renumbers, stripping retired fields", () => {
+  const [step] = steps
+  const v1 = { ...openState(), version: 1, keepSelected: true, sessions: { b: { placement: "history" } } }
+  expect(step!.up(step!.schema.parse(v1) as never)).toEqual({
+    ...openState(),
+    version: 2,
+    sessions: { b: { placement: "history", unread: false } },
+  })
+})
+
+test("a saved version newer than this release fails and names both versions", () => {
+  const current = stateSchema.shape.version.value
+  expect(() => readState({ ...openState(), version: current + 1 })).toThrow(
+    `Saved switchboard state is version ${current + 1}; this release reads up to ${current}. Update opencode-switchboard.`,
+  )
+})
+
+test("a version without a migration step, or no version, fails instead of resetting", () => {
+  expect(() => readState({ ...openState(), version: 0 })).toThrow("version 0, which has no migration")
+  expect(() => readState({ ...openState(), version: undefined })).toThrow("no version")
+  expect(() => readState(null)).toThrow("no version")
 })

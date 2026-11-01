@@ -13,7 +13,7 @@ const KEYS = [
   ["enter", "Open session, or fold a heading"],
   ["←/→", "Fold / unfold heading"],
   ["u", "Mark read/unread"],
-  ["a / l", "Move to Active / Later"],
+  ["p", "Park or unpark"],
   ["x", "Close session or project"],
   ["esc", "Close panel when focused"],
 ] as const

@@ -299,10 +299,10 @@ try {
   } else if (session) {
     child.write("\x1b[Bu")
     await wait((text) => /•\s+Isolated panel smoke/.test(text))
-    child.write("l")
-    await wait((text) => text.includes("▾ Later") && /•\s+Isolated panel smoke/.test(text))
-    child.write("a")
-    await wait((text) => !text.includes("▾ Later") && /•\s+Isolated panel smoke/.test(text))
+    child.write("p")
+    await wait((text) => text.includes("▾ Parked") && /•\s+Isolated panel smoke/.test(text))
+    child.write("p")
+    await wait((text) => !text.includes("▾ Parked") && /•\s+Isolated panel smoke/.test(text))
     // Closing the project keeps its saved session set (reopening via Ctrl+O is not yet scripted).
     child.write("\x1b[Ax")
     await wait((text) => text.includes("No open projects"))
