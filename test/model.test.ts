@@ -10,7 +10,7 @@ import {
   type Session,
 } from "../src/model"
 import { createInboxStore } from "../src/store"
-import { readState } from "../src/migrate"
+import { readState, steps } from "../src/migrate"
 import { followRoute } from "../src/selection"
 
 const session: Session = {
@@ -374,4 +374,32 @@ test("migration does not close the currently viewed legacy History session", () 
   })
   expect(migrated.projects.p?.sessions).toContain("b")
   expect(migrated.sessions.b).toEqual({ placement: "active", unread: true })
+})
+
+test("the migration steps form one chain that ends at the current version", () => {
+  expect(steps.map((step) => [step.from, step.to])).toEqual(steps.map((_, index) => [index + 1, index + 2]))
+  expect(steps.at(-1)?.to).toBe(stateSchema.shape.version.value)
+})
+
+test("step 1 → 2 only renumbers, stripping retired fields", () => {
+  const [step] = steps
+  const v1 = { ...openState(), version: 1, keepSelected: true, sessions: { b: { placement: "history" } } }
+  expect(step!.up(step!.schema.parse(v1) as never)).toEqual({
+    ...openState(),
+    version: 2,
+    sessions: { b: { placement: "history", unread: false } },
+  })
+})
+
+test("a saved version newer than this release fails and names both versions", () => {
+  const current = stateSchema.shape.version.value
+  expect(() => readState({ ...openState(), version: current + 1 })).toThrow(
+    `Saved switchboard state is version ${current + 1}; this release reads up to ${current}. Update opencode-switchboard.`,
+  )
+})
+
+test("a version without a migration step, or no version, fails instead of resetting", () => {
+  expect(() => readState({ ...openState(), version: 0 })).toThrow("version 0, which has no migration")
+  expect(() => readState({ ...openState(), version: undefined })).toThrow("no version")
+  expect(() => readState(null)).toThrow("no version")
 })
