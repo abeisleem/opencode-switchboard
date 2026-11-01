@@ -171,8 +171,9 @@ Opening a session, with Enter or a click, moves focus to its conversation so you
 `<leader>i` (**Ctrl+X, then I** by default) to return to the panel.
 
 `<leader>w` (**Ctrl+X, then W** by default) closes the conversation you are viewing, independently of the panel
-cursor, and returns to the session you viewed most recently in this TUI that is still open. It is active while Switchboard is open; closing the panel restores
-the native shortcut behavior. Rebind it with `opencode-switchboard.close-current` in `cli.json`.
+cursor, and returns to the session you viewed most recently in this TUI that is still open. It is active while
+Switchboard is open; closing the panel restores the native shortcut behavior. Rebind it with
+`opencode-switchboard.close-current` in `cli.json`.
 
 **The switchboard never deletes, archives, or stops sessions.** Closing removes a session from the panel;
 opening it again brings it back. A closed project keeps its sessions for when you reopen it. Delete sessions
@@ -183,10 +184,10 @@ through OpenCode's native session list.
 The server part stores the organization, and every client of that server shares it: open projects, their
 sessions, parked sessions, unread marks, and folds.
 
-Each TUI keeps its own place: the conversation it shows, the sessions it showed recently, its view, and the
-panel's cursor and scroll position. Opening a session in one TUI does not switch the others. Closing a
-session's row in one TUI removes the row everywhere, but only the TUI that closed it moves to another session;
-the others keep the conversation open. A TUI forgets its recent sessions when it exits.
+Each TUI keeps its own place: the conversation it shows, the sessions it showed recently, and the panel's
+cursor and scroll position. Opening a session in one TUI does not switch the others. Closing a session's row
+in one TUI removes the row everywhere, but only the TUI that closed it moves to another session; the others
+keep the conversation open. A TUI forgets its recent sessions when it exits.
 
 OpenCode's desktop and mobile apps do not show the panel. Viewing a finished session there still counts as
 reading it, but does not clear a session you marked unread.
