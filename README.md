@@ -133,17 +133,18 @@ Projects are listed by name. Under each one come its Active sessions, then a **L
 you are viewing has a bold title. A session in a worktree or another folder of the project shows that folder's
 name on a second line.
 
-| Indicator | Meaning                                                                            |
-| --------- | ---------------------------------------------------------------------------------- |
-| `!`       | Waiting for your approval                                                          |
-| `?`       | Waiting for your answer to a question                                              |
-| Spinner   | Running or queued                                                                  |
-| `×`       | The last run failed                                                                |
-| `•`       | Unread: finished since you last looked, or marked unread                           |
-| `~`       | Approvals and questions for this workspace could not be read; press `d` for detail |
+| Indicator | Meaning                                                                                        |
+| --------- | ---------------------------------------------------------------------------------------------- |
+| `!`       | Waiting for your approval                                                                      |
+| `?`       | Waiting for your answer to a question                                                          |
+| Spinner   | Running or queued                                                                              |
+| `×`       | The last run failed                                                                            |
+| `•`       | Unread: finished since you last looked, or marked unread                                       |
+| `~`       | Approvals and questions for this workspace could not be read; click the error line for details |
 
-A folded project or Later heading sums up what it hides: `? 2` waiting on you, a spinner and count for running
-or queued sessions, and `• 3` unread. Group and session spinners use the same animation and running color.
+A folded project sums up what it hides: `? 2` waiting on you, a spinner and count for running or queued
+sessions, and `• 3` unread. Group and session spinners use the same animation and running color. A folded Later
+shows only how many sessions it holds, as `Later · 3`, so parked work stays quiet.
 
 Unread is independent of placement: mark a session unread to come back to it, whether it is Active or Later.
 
