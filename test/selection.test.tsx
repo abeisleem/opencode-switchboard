@@ -186,8 +186,8 @@ test("rapid removals select the next survivor, then the previous survivor at the
 
 test("← folds and → unfolds the highlighted heading, and neither ever toggles", async () => {
   const input = fixture()
-  // Rows: Before, before, Work, a, b, Later, c, Z after, after.
-  input.state.sessions.c = { placement: "later", unread: false }
+  // Rows: Before, before, Work, a, b, Parked, c, Z after, after.
+  input.state.sessions.c = { placement: "parked", unread: false }
   const { app, controls, calls } = await harness(input)
   try {
     const folds = () => calls.filter((call) => call.type === "fold")
@@ -205,15 +205,15 @@ test("← folds and → unfolds the highlighted heading, and neither ever toggle
     expect(app.captureCharFrame()).toContain("▸ Work/")
     controls.fold(false)
     await app.renderOnce()
-    expect(app.captureCharFrame()).toMatch(/▾ Work\/[^]*Task a[^]*▾ Later[^]*Task c/)
-    // The project's Later heading folds the same way.
+    expect(app.captureCharFrame()).toMatch(/▾ Work\/[^]*Task a[^]*▾ Parked[^]*Task c/)
+    // The project's Parked heading folds the same way.
     for (let i = 0; i < 3; i++) controls.next()
     calls.length = 0
     controls.fold(true)
     controls.fold(true)
-    expect(folds()).toEqual(Array(2).fill({ type: "fold", key: "Work/later", folded: true }))
+    expect(folds()).toEqual(Array(2).fill({ type: "fold", key: "parked:Work", folded: true }))
     await app.renderOnce()
-    expect(app.captureCharFrame()).toContain("▸ Later · 1")
+    expect(app.captureCharFrame()).toContain("▸ Parked · 1")
     expect(app.captureCharFrame()).not.toContain("Task c")
   } finally {
     await app.dispose()
@@ -253,8 +253,8 @@ test("the final session falls back to its own project header, not another projec
 
 test("removing a section's final session handles disappearing and flattened group headings", async () => {
   const input = fixture()
-  // Rows: Before, before, Work, a, b, Later, c — removing c also removes the Later heading.
-  input.state.sessions.c = { placement: "later", unread: false }
+  // Rows: Before, before, Work, a, b, Parked, c — removing c also removes the Parked heading.
+  input.state.sessions.c = { placement: "parked", unread: false }
   const { app, controls, calls } = await harness(input)
   try {
     for (let i = 0; i < 6; i++) controls.next()

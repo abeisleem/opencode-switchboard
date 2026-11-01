@@ -22,7 +22,7 @@ async function fixture(projectID: string) {
   let saved = initialState()
   saved.revision = 1
   saved.projects.parked = { name: "Keep my name", open: false, sessions: ["saved"] }
-  saved.sessions.saved = { placement: "later", unread: true, seen: 0 }
+  saved.sessions.saved = { placement: "parked", unread: true, seen: 0 }
   const original = structuredClone(saved)
   const noop = () => {}
   let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }

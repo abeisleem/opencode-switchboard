@@ -14,7 +14,7 @@ import {
   Show,
 } from "solid-js"
 import { Switchboard } from "./rpc"
-import { initialState, laterKey, projectOf, type Action, type Session, type State } from "./model"
+import { initialState, parkedKey, projectOf, type Action, type Session, type State } from "./model"
 import { liveSession, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
 import { HelpDialog, helpShortcuts } from "./help"
@@ -237,8 +237,8 @@ export default Plugin.define({
       if (!project) return
       // Unfold rather than toggle: a stale state() must never fold what it means to reveal.
       if (state().collapsed.includes(project)) await act({ type: "fold", key: project, folded: false })
-      if (state().sessions[id]?.placement === "later" && state().collapsed.includes(laterKey(project)))
-        await act({ type: "fold", key: laterKey(project), folded: false })
+      if (state().sessions[id]?.placement === "parked" && state().collapsed.includes(parkedKey(project)))
+        await act({ type: "fold", key: parkedKey(project), folded: false })
       reveal(`session:${id}`)
     }
     async function openInbox() {
@@ -439,7 +439,7 @@ export default Plugin.define({
                   { bind: "right", run: () => actions.fold(false) },
                   { bind: "u", run: actions.unread },
                   { bind: "a", run: () => actions.place("active") },
-                  { bind: "l", run: () => actions.place("later") },
+                  { bind: "l", run: () => actions.place("parked") },
                   { bind: "x", run: actions.remove },
                   { bind: "?,shift+?", run: help },
                   { bind: "escape", run: close },

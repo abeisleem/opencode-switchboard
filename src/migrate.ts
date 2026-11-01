@@ -44,6 +44,26 @@ const legacySchema = <V extends 1 | 2>(version: V) =>
     ),
   })
 
+const v3Schema = z.object({
+  version: z.literal(3),
+  revision: z.number(),
+  navigation: z.number(),
+  selected: z.string().nullable(),
+  recent: z.array(z.string()),
+  collapsed: z.array(z.string()),
+  projects: z
+    .record(projectKey, z.object({ name: z.string(), open: z.boolean(), sessions: z.array(z.string()) }))
+    .default({}),
+  sessions: z.record(
+    z.string(),
+    z.object({
+      placement: z.enum(["active", "later"]).default("active"),
+      unread: z.boolean().default(false),
+      seen: z.number().optional(),
+    }),
+  ),
+})
+
 /** Every upgrade, in order. A new version adds one step here and bumps `stateSchema.version`. */
 export const steps: Step[] = [
   step({
@@ -86,6 +106,30 @@ export const steps: Step[] = [
         collapsed: old.collapsed.filter((key) => !retired.has(key)),
       }
     },
+  }),
+  // The Later section became Parked (0.1.5): the "later" placement becomes "parked". Its fold key also moved
+  // from a "<project>/later" suffix to a "parked:<project>" prefix. A session outside a git repository uses its
+  // directory as the project key, so "/a/later" could be both Later's fold under "/a" and the fold of a project
+  // at "/a/later". Directory keys start with "/", so a prefixed key cannot equal a project key. Only keys whose
+  // project is saved are mapped; every other key, including project folds, stays as it was.
+  step({
+    from: 3,
+    to: 4,
+    schema: v3Schema,
+    up: (old) => ({
+      ...old,
+      version: 4,
+      sessions: Object.fromEntries(
+        Object.entries(old.sessions).map(([id, item]) => [
+          id,
+          { ...item, placement: item.placement === "later" ? "parked" : "active" },
+        ]),
+      ),
+      collapsed: old.collapsed.map((key) => {
+        const project = key.endsWith("/later") ? key.slice(0, -"/later".length) : undefined
+        return project !== undefined && Object.hasOwn(old.projects, project) ? `parked:${project}` : key
+      }),
+    }),
   }),
 ]
 

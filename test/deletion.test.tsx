@@ -13,7 +13,7 @@ async function backend(ids = ["a", "b", "c"]) {
   state.selected = "b"
   state.recent = ["b", "c", "a"]
   state.projects.work = { name: "Work", open: true, sessions: ids }
-  state.sessions.a = { placement: "later", unread: true }
+  state.sessions.a = { placement: "parked", unread: true }
   const existing = new Set(ids)
   const reads: string[] = []
   let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }
@@ -48,7 +48,7 @@ test("removing an already deleted session only changes Switchboard membership", 
   expect(host.reads).toEqual([])
   expect(next.selected).toBe("c")
   expect(next.projects.work?.sessions).toEqual(["a", "c"])
-  expect(next.sessions.a).toEqual({ placement: "later", unread: true })
+  expect(next.sessions.a).toEqual({ placement: "parked", unread: true })
   expect([...host.existing]).toEqual(["a", "c"])
 })
 
