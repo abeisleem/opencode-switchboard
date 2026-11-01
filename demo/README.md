@@ -27,7 +27,7 @@ bun run render   # renders the newest recording to out/switchboard.mp4
 
 - `fixture.ts`: the invented projects and sessions, one for every row state the panel draws.
 - `record.ts`: seeds the switchboard over its RPC, then plays the scenes at a human pace with real key
-  presses. Each scene starts with a recording mark (`open`, `finished`, `later`, …).
+  presses. Each scene starts with a recording mark (`open`, `parked`, `unread`, …).
 - `render.ts`: redraws the recorded terminal at 1080p with a camera that follows the scenes, keycaps for the
   recorded key presses, a caption per mark, and title and end cards.
 

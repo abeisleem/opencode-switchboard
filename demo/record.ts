@@ -6,6 +6,7 @@ import { OpenCode } from "../node_modules/@opencode/client/dist/promise/index.js
 import { Service } from "../node_modules/@opencode/client/dist/promise/service.js"
 import { Cause, Deferred, Effect, Stream } from "effect"
 import { Llm, OpenCodeDriver } from "opencode-drive"
+import { parkedKey } from "../src/model"
 import { Switchboard } from "../src/rpc"
 import { CURRENT, projects, type DemoProject, type DemoSession } from "./fixture"
 
@@ -43,7 +44,7 @@ const background = (line: Frame["lines"][number], x: number) => {
 /**
  * The panel's rows, top to bottom, and which one holds the cursor. Rows are separated by blank lines (a
  * worktree line follows its row directly). The cursor row shows the ✕, or the highlight fill once the
- * keyboard has moved it; Later headings have no ✕.
+ * keyboard has moved it; Parked headings have no ✕.
  */
 function panelRows(frame: Frame) {
   const start = COLS - PANEL_COLS
@@ -256,7 +257,7 @@ function script(
       for (const session of [...project.sessions].reverse()) {
         const sessionID = ids.get(session.title)!
         const directory = location(project, session)
-        yield* act({ type: "place", sessionID, placement: session.later ? "later" : "active" }, directory)
+        yield* act({ type: "place", sessionID, placement: session.parked ? "parked" : "active" }, directory)
         if (session.behavior === "read") {
           const info = yield* Effect.promise(() => client.session.get({ sessionID }))
           yield* act({ type: "read", sessionID, observed: info.time.idle ?? 0 }, directory)
@@ -290,30 +291,31 @@ function script(
     yield* ui.mouse({ action: "move", x: 0, y: ROWS - 1 })
     yield* hold("400 millis")
     yield* ui.press("escape")
-    // Opening the starting session unfolded its project's Later; fold the ones that start folded.
+    // Fold the Parked sections that start folded. Setting the fold, rather than toggling it, leaves it
+    // folded whether or not opening the starting session changed it.
     for (const project of projects)
-      if (project.laterFolded)
-        yield* act({ type: "collapse", key: `${keys.get(project.name)}/later` }, location(project))
+      if (project.parkedFolded)
+        yield* act({ type: "fold", key: parkedKey(keys.get(project.name)!), folded: true }, location(project))
     yield* hold("1500 millis")
 
-    // 1. Open it: projects grouped, every state, a folded project's badges, and the Later count.
+    // 1. Open it: projects grouped, every state, a folded project's badges, and the Parked count.
     yield* mark("open")
     yield* hold("1 second")
     yield* press("x", { ctrl: true })
     yield* press("i")
     yield* hold("2500 millis")
 
-    // 2. Park a session under Later (the count goes up), open Later, and bring one back.
-    yield* mark("later")
+    // 2. Park a session (the Parked count goes up), open Parked, and unpark one.
+    yield* mark("parked")
     yield* moveTo("Bump Next.js to 16")
     yield* hold("300 millis")
-    yield* press("l")
+    yield* press("p")
     yield* hold("1300 millis")
-    yield* moveTo("Later", "orbit-web/")
+    yield* moveTo("Parked", "orbit-web/")
     yield* press("return")
     yield* hold("1300 millis")
     yield* moveTo("Audit bundle size")
-    yield* press("a")
+    yield* press("p")
     yield* hold("1500 millis")
 
     // 3. Mark a session unread, then read again.
