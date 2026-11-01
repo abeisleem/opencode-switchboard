@@ -543,7 +543,7 @@ test("migration does not close the currently viewed legacy History session", () 
 })
 
 test("version 4 state saved before the selection became per TUI still loads, without it", () => {
-  // Unreleased builds of 0.1.5 saved version 4 with the shared selection; the object schema strips it.
+  // Unreleased builds of 0.2.0 saved version 4 with the shared selection; the object schema strips it.
   const saved = { ...openState(), navigation: 3, selected: "b", recent: ["b", "a"] }
   const state = readState(saved)
   expect(state).toEqual(openState())

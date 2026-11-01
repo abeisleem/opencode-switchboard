@@ -107,7 +107,7 @@ export const steps: Step[] = [
       }
     },
   }),
-  // The Later section became Parked (0.1.5): the "later" placement becomes "parked". Its fold key also moved
+  // The Later section became Parked (0.2.0): the "later" placement becomes "parked". Its fold key also moved
   // from a "<project>/later" suffix to a "parked:<project>" prefix. A session outside a git repository uses its
   // directory as the project key, so "/a/later" could be both Later's fold under "/a" and the fold of a project
   // at "/a/later". Directory keys start with "/", so a prefixed key cannot equal a project key. Only keys whose
