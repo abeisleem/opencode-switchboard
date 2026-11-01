@@ -93,6 +93,8 @@ async function harness(
     },
   } as unknown as Parameters<typeof server.setup>[0])
   const [route, navigate] = createSignal<Route>(options.route ?? { type: "session", sessionID: "b" })
+  // The side panel the host shows beside a session, by name. Only a session view has one.
+  const [panel, setPanel] = createSignal<string>()
   const layers: (() => Layer)[] = []
   const actions: Action[] = []
   const dispatched: string[] = []
@@ -178,7 +180,16 @@ async function harness(
         if (slot.append === "app") renderApp = slot.render
         return noop
       },
-      panel: { open: () => route().type === "session", current: () => undefined, close: noop },
+      panel: {
+        open: (name: string) => {
+          if (route().type !== "session") return false
+          setPanel(name)
+          return true
+        },
+        // Reported as closed, as before this field was modeled, so opening the switchboard always remounts it.
+        current: () => undefined,
+        close: () => setPanel(undefined),
+      },
       tabs: { enabled: () => false },
       dialog: {
         show: (render: () => JSX.Element, onClose?: () => void) =>
@@ -217,6 +228,20 @@ async function harness(
     app,
     route,
     navigate,
+    /** The side panel the host shows, if any. */
+    panel,
+    /**
+     * Opens a session the way OpenCode's Ctrl+O menu or session list does: the new session view replaces the
+     * old one and its side panel, showing the native sidebar until a plugin opens its panel again.
+     */
+    hostOpen(sessionID: string) {
+      setPanel(undefined)
+      navigate({ type: "session", sessionID })
+    },
+    /** Closes the side panel without leaving the session, as the host can. */
+    hostClosePanel() {
+      setPanel(undefined)
+    },
     actions,
     dispatched,
     rpc,
@@ -469,6 +494,50 @@ test("opening a session from the panel hands focus to its conversation", async (
     await run.key("return")
     expect(JSON.stringify(run.route())).toBe('{"type":"session","sessionID":"a"}')
     expect(await until(() => run.dispatched.includes(FOCUS_CONVERSATION))).toBe(true)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a session OpenCode opens itself ends with the switchboard panel shown again", async () => {
+  const run = await harness({ members: ["a", "b", "c"] })
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.panel()).toBe("switchboard")
+    run.hostOpen("c")
+    expect(run.panel()).toBeUndefined()
+    expect(await until(() => run.panel() === "switchboard")).toBe(true)
+    expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "c", observed: 0 })
+    // Going back after closing the current row keeps the panel too, without handing focus over.
+    await run.open() // Moves the cursor to the current session, c.
+    run.dispatched.length = 0
+    await run.key("x")
+    expect(await until(() => JSON.stringify(run.route()) === '{"type":"session","sessionID":"b"}')).toBe(true)
+    await Bun.sleep(10)
+    expect(run.panel()).toBe("switchboard")
+    expect(run.dispatched).not.toContain(FOCUS_CONVERSATION)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("another client's change never opens the panel here", async () => {
+  const run = await harness({ members: ["a", "b", "c"] })
+  try {
+    await run.open()
+    await run.frame()
+    run.hostOpen("c")
+    expect(await until(() => run.panel() === "switchboard")).toBe(true)
+    // The host closes the side panel while the switchboard stays enabled; another TUI then changes shared state.
+    run.hostClosePanel()
+    await run.rpc.act({ type: "visit", sessionID: "a", observed: 0 })
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    await run.rpc.act({ type: "place", sessionID: "c", placement: "parked" })
+    await Bun.sleep(20)
+    expect(run.saved().projects.work?.sessions).toEqual(["a", "c"])
+    expect(run.panel()).toBeUndefined()
+    expect(run.route()).toEqual({ type: "session", sessionID: "c" })
   } finally {
     await run.dispose()
   }

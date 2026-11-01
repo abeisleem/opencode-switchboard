@@ -219,12 +219,15 @@ export default Plugin.define({
       setState(next)
       if (enabled && membershipChanged) void refresh()
     }
+    /** Sends an action to the server; resolves whether it succeeded. */
     async function act(action: Action) {
       try {
         accept(await rpc.act(action, options))
         setError("")
+        return true
       } catch (cause) {
         report(cause)
+        return false
       }
     }
     async function refresh() {
@@ -353,7 +356,11 @@ export default Plugin.define({
         // A subagent of the current session is the same work context: record nothing.
         if (root !== id && root === history.current) return
         show(root)
-        await act({ type: "visit", sessionID: root, observed })
+        // A navigation OpenCode drove (Ctrl+O, its session list) can replace the session view and close the side
+        // panel, showing the native sidebar instead. While the switchboard is open, end every visit with it shown.
+        // Only this TUI's own visits do this; another TUI's changes never open anything here.
+        if (!(await act({ type: "visit", sessionID: root, observed }))) return
+        if (!stopped && enabled && ctx.ui.router.current().type === "session") showPanel()
       } catch (cause) {
         // The host navigates optimistically, before its create request commits.
         // Retry on session.created instead of showing an error for that local draft.
