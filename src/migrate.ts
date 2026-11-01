@@ -114,24 +114,29 @@ export const steps: Step[] = [
   // project is saved are mapped; every other key, including project folds, stays as it was.
   // The same release made the current session per TUI (issue #52): `selected`, `recent`, and `navigation` are
   // dropped here rather than in a step of their own, because no release saved version 4 with them.
+  // It also made closing a session's row unpark it, so a session no project lists, open or closed, becomes
+  // unparked here too; its unread mark and seen time stay.
   step({
     from: 3,
     to: 4,
     schema: v3Schema,
-    up: ({ selected: _selected, recent: _recent, navigation: _navigation, ...old }) => ({
-      ...old,
-      version: 4,
-      sessions: Object.fromEntries(
-        Object.entries(old.sessions).map(([id, item]) => [
-          id,
-          { ...item, placement: item.placement === "later" ? "parked" : "active" },
-        ]),
-      ),
-      collapsed: old.collapsed.map((key) => {
-        const project = key.endsWith("/later") ? key.slice(0, -"/later".length) : undefined
-        return project !== undefined && Object.hasOwn(old.projects, project) ? `parked:${project}` : key
-      }),
-    }),
+    up: ({ selected: _selected, recent: _recent, navigation: _navigation, ...old }) => {
+      const listed = new Set(Object.values(old.projects).flatMap((project) => project.sessions))
+      return {
+        ...old,
+        version: 4,
+        sessions: Object.fromEntries(
+          Object.entries(old.sessions).map(([id, item]) => [
+            id,
+            { ...item, placement: item.placement === "later" && listed.has(id) ? "parked" : "active" },
+          ]),
+        ),
+        collapsed: old.collapsed.map((key) => {
+          const project = key.endsWith("/later") ? key.slice(0, -"/later".length) : undefined
+          return project !== undefined && Object.hasOwn(old.projects, project) ? `parked:${project}` : key
+        }),
+      }
+    },
   }),
 ]
 

@@ -16,7 +16,7 @@ elsewhere. The switchboard replaces the tabs with a panel built for that:
 - **Unread marks.** Mark a session unread to come back to it, the way you would an email.
 - **Parked, for work you set aside.** Park a session in its project's Parked fold to get it out of the way
   without losing it, and unpark it with the same key. Parking and unread marks are independent.
-- **Nothing is deleted.** Closing a session or a project only hides it from the panel.
+- **Nothing is deleted.** Closing a session or a project hides it from the panel.
 - **Shared across TUIs.** The switchboard lives on the OpenCode server, so every TUI connected to it sees
   the same projects, sessions, and unread marks. Each TUI still shows its own conversation.
 
@@ -156,7 +156,7 @@ Unread is independent of placement: mark a session unread to come back to it, wh
 | ←/→                                     | Fold / unfold heading                                 |
 | `u`                                     | Toggle read/unread                                    |
 | `p`                                     | Park or unpark                                        |
-| `x`                                     | Close session or project (keeps its saved state)      |
+| `x`                                     | Close session or project (never deletes it)           |
 | `<leader>w` (Ctrl+X, then W by default) | Close the current conversation's row from either pane |
 | `?`                                     | Help                                                  |
 | Esc                                     | Close the panel                                       |

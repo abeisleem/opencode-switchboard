@@ -10,6 +10,8 @@ the new-session screen once, and its `<leader>w` does nothing; nothing is lost.
   it; projects, sessions, parked sessions, unread marks, and folds are still shared. Closing the current
   session's row returns to the session you viewed most recently in that TUI. When another TUI closes the row of
   the session you are viewing, the row disappears but the conversation stays open.
+- Closing a session's row unparks it, so it comes back unparked when you open it again. Closing a project keeps
+  its parked sessions.
 - Later is now Parked: each project lists its sessions, then a Parked fold (`▸ Parked · 3` when folded). Saved
   state migrates automatically and keeps your parked sessions and folds.
 - `p` parks the highlighted session, and unparks a parked one. It replaces `a` and `l`.

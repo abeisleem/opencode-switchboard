@@ -143,6 +143,10 @@ export function reduce(state: State, action: Action, admission?: Admission): Sta
   if (action.type === "session-remove") {
     for (const project of Object.values(next.projects))
       project.sessions = project.sessions.filter((id) => id !== action.sessionID)
+    // Closing a row unparks it, so the session comes back unparked when it is opened again. Unread is independent
+    // of placement and stays. Closing a project, above, keeps its sessions' placements.
+    const item = next.sessions[action.sessionID]
+    if (item) item.placement = "active"
     return next
   }
   if (action.type === "collapse") {

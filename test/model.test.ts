@@ -184,6 +184,45 @@ test("close fallback prefers recent open members over roster order and skips clo
   expect(fallbackSession(openState(), ["b", "a"], "b")).toBe("a")
 })
 
+test("closing a session's row unparks it, so it comes back unparked with its unread mark", () => {
+  let state = reduce(openState(), { type: "place", sessionID: "b", placement: "parked" })
+  state = reduce(state, { type: "read", sessionID: "b", observed: 4 })
+  state = reduce(state, { type: "unread", sessionID: "b" })
+  state = reduce(state, { type: "session-remove", sessionID: "b" })
+  expect(state.sessions.b).toEqual({ placement: "active", unread: true, seen: 4 })
+  expect(state.projects.p?.sessions).toEqual(["a"])
+  // Opening it again (any visit or place admission) lists it unparked.
+  state = reduce(
+    state,
+    { type: "visit", sessionID: "b", observed: 2 },
+    { project: "p", name: "Project", sessions: ["b"] },
+  )
+  expect(state.projects.p?.sessions).toEqual(["b", "a"])
+  expect(state.sessions.b).toEqual({ placement: "active", unread: false, seen: 4 })
+  expect(shape([session, { ...session, id: "a" }], state)).toEqual([
+    ["Project", 0],
+    ["b", 1],
+    ["a", 1],
+  ])
+  // Removing a session the switchboard never organized records nothing for it.
+  expect(reduce(openState(), { type: "session-remove", sessionID: "a" }).sessions).toEqual({})
+})
+
+test("closing a project keeps its parked sessions parked for when it reopens", () => {
+  let state = reduce(openState(), { type: "place", sessionID: "b", placement: "parked" })
+  state = reduce(state, { type: "unread", sessionID: "b" })
+  state = reduce(state, { type: "project-close", project: "p" })
+  expect(state.sessions.b).toEqual({ placement: "parked", unread: true })
+  state = reduce(state, { type: "project-open", project: "p", name: "Project" })
+  expect(state.sessions.b).toEqual({ placement: "parked", unread: true })
+  expect(shape([{ ...session, id: "a" }, session], state)).toEqual([
+    ["Project", 0],
+    ["a", 1],
+    ["Parked", 1],
+    ["b", 2],
+  ])
+})
+
 test("this TUI's history is bounded, newest first, and moves a revisited session to the front", () => {
   const history = createSessionHistory()
   for (let index = 0; index < 60; index++) recordShown(history, `s${index}`)
@@ -422,6 +461,19 @@ test("step 3 → 4 renames Later to Parked, moves only saved projects' Later fol
     },
   })
   expect(readState(v3State())).toEqual(stateSchema.parse(migrated))
+})
+
+test("step 3 → 4 unparks a Later session no project lists, keeping its unread mark and seen time", () => {
+  // d was closed while it sat in Later; a stays listed in an open project, c in a closed one.
+  const v3 = {
+    ...v3State(),
+    sessions: { ...v3State().sessions, d: { placement: "later", unread: true, seen: 9 } },
+  }
+  const migrated = readState(v3)
+  expect(migrated.sessions.d).toEqual({ placement: "active", unread: true, seen: 9 })
+  expect(migrated.sessions.a).toEqual({ placement: "parked", unread: true, seen: 3 })
+  expect(migrated.sessions.c).toEqual({ placement: "parked", unread: false, seen: 1 })
+  expect(migrated.projects).toEqual(v3.projects)
 })
 
 test("version 1 state migrates through every step to the current version without losing organization", () => {

@@ -236,3 +236,17 @@ test("native deletion of the current session goes back but leaves keyboard focus
     await host.close()
   }
 })
+
+test("native deletion of a parked session unparks it and keeps its unread mark", async () => {
+  const host = await harness()
+  try {
+    host.delete("a")
+    await Bun.sleep(0)
+    const state = await host.rpc.snapshot()
+    expect(state.projects.work?.sessions).toEqual(["b", "c"])
+    expect(state.sessions.a).toEqual({ placement: "active", unread: true })
+    expect(host.route()).toEqual({ type: "session", sessionID: "b" })
+  } finally {
+    await host.close()
+  }
+})
