@@ -13,9 +13,6 @@ const projectKey = z
 export const stateSchema = z.object({
   version: z.literal(4),
   revision: z.number(),
-  navigation: z.number(),
-  selected: z.string().nullable(),
-  recent: z.array(z.string()),
   collapsed: z.array(z.string()),
   projects: z
     .record(
@@ -82,9 +79,6 @@ export function initialState(): State {
   return {
     version: 4,
     revision: 0,
-    navigation: 0,
-    selected: null,
-    recent: [],
     collapsed: [],
     sessions: {},
     projects: {},
@@ -134,19 +128,6 @@ export function reduce(state: State, action: Action, admission?: Admission): Sta
     project.sessions = [...new Set(admission.sessions.filter((id) => !members.has(id))), ...project.sessions]
     next.collapsed = next.collapsed.filter((key) => key !== admission.project)
   }
-  function goBack(exclude: string) {
-    const open = new Set(
-      Object.values(next.projects)
-        .filter((project) => project.open)
-        .flatMap((project) => project.sessions),
-    )
-    open.delete(exclude)
-    // History is bounded; an open session can outlive its entry in recent.
-    next.selected = next.recent.find((id) => open.has(id)) ?? open.values().next().value ?? null
-    if (next.selected)
-      next.recent = [next.selected, ...next.recent.filter((id) => id !== next.selected)].slice(0, 50)
-    next.navigation++
-  }
   if (action.type === "project-open") {
     const project = next.projects[action.project]
     if (project) project.open = true
@@ -157,13 +138,11 @@ export function reduce(state: State, action: Action, admission?: Admission): Sta
     const project = next.projects[action.project]
     if (!project) return next
     project.open = false
-    if (next.selected && project.sessions.includes(next.selected)) goBack(next.selected)
     return next
   }
   if (action.type === "session-remove") {
     for (const project of Object.values(next.projects))
       project.sessions = project.sessions.filter((id) => id !== action.sessionID)
-    if (next.selected === action.sessionID) goBack(action.sessionID)
     return next
   }
   if (action.type === "collapse") {
@@ -184,15 +163,10 @@ export function reduce(state: State, action: Action, admission?: Admission): Sta
     item.unread = false
     item.seen = Math.max(item.seen ?? 0, action.observed)
   }
-  if (action.type === "visit") {
-    // Opening a session inside a folded Parked section reveals it.
-    // The server admits every selection, so check placement: an unparked selection leaves Parked folded.
-    if (admission && item.placement === "parked")
-      next.collapsed = next.collapsed.filter((key) => key !== parkedKey(admission.project))
-    next.selected = action.sessionID
-    next.recent = [action.sessionID, ...next.recent.filter((id) => id !== action.sessionID)].slice(0, 50)
-    next.navigation++
-  }
+  // Opening a session inside a folded Parked section reveals it, for every TUI: folds are shared.
+  // The server admits every visit, so check placement: visiting an unparked session leaves Parked folded.
+  if (action.type === "visit" && admission && item.placement === "parked")
+    next.collapsed = next.collapsed.filter((key) => key !== parkedKey(admission.project))
   return next
 }
 

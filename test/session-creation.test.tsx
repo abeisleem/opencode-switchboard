@@ -158,12 +158,12 @@ for (const projectID of ["global", "git-project"]) {
       run.navigate({ type: "session", sessionID: "new-session" })
       await run.app.renderOnce()
       expect(run.misses()).toBe(1)
-      expect(run.saved().selected).toBeNull()
+      expect(run.saved().sessions["new-session"]).toBeUndefined()
       expect(run.app.captureCharFrame()).not.toContain("Session not found")
       run.create()
       await run.app.renderOnce()
       await run.app.renderOnce()
-      expect(run.saved().selected).toBe("new-session")
+      expect(run.saved().sessions["new-session"]).toEqual({ placement: "active", unread: false, seen: 0 })
       const key = projectID === "global" ? "/new-project" : projectID
       expect(run.saved().projects[key]).toEqual({
         name: "new-project",
@@ -203,11 +203,11 @@ test("creation before navigation is admitted by the route and unrelated events a
     await run.open()
     run.create()
     await run.app.renderOnce()
-    expect(run.saved().selected).toBeNull()
+    expect(run.saved().sessions["new-session"]).toBeUndefined()
     run.navigate({ type: "session", sessionID: "new-session" })
     await run.app.renderOnce()
     await run.app.renderOnce()
-    expect(run.saved().selected).toBe("new-session")
+    expect(run.saved().sessions["new-session"]).toEqual({ placement: "active", unread: false, seen: 0 })
     const before = structuredClone(run.saved())
     run.create("another-client-session")
     await run.app.renderOnce()

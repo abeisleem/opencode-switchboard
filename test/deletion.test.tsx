@@ -10,8 +10,6 @@ type Route = ReturnType<Plugin.Context["ui"]["router"]["current"]>
 async function backend(ids = ["a", "b", "c"]) {
   let state = initialState()
   state.revision = 1
-  state.selected = "b"
-  state.recent = ["b", "c", "a"]
   state.projects.work = { name: "Work", open: true, sessions: ids }
   state.sessions.a = { placement: "parked", unread: true }
   const existing = new Set(ids)
@@ -46,7 +44,6 @@ test("removing an already deleted session only changes Switchboard membership", 
   host.existing.delete("b")
   const next = await host.rpc.act({ type: "session-remove", sessionID: "b" })
   expect(host.reads).toEqual([])
-  expect(next.selected).toBe("c")
   expect(next.projects.work?.sessions).toEqual(["a", "c"])
   expect(next.sessions.a).toEqual({ placement: "parked", unread: true })
   expect([...host.existing]).toEqual(["a", "c"])
@@ -148,9 +145,14 @@ async function harness(ids?: string[]) {
 }
 
 for (const order of ["before", "after"] as const)
-  test(`native deletion selects recent open work when the host goes home ${order} the event`, async () => {
+  test(`native deletion goes to this TUI's recent open work when the host goes home ${order} the event`, async () => {
     const host = await harness()
     try {
+      // This TUI showed c, then b. Without that history it would fall back to the first open session, a.
+      host.setRoute({ type: "session", sessionID: "c" })
+      await Bun.sleep(0)
+      host.setRoute({ type: "session", sessionID: "b" })
+      await Bun.sleep(0)
       if (order === "before") host.setRoute({ type: "home" })
       host.delete("b")
       if (order === "after") host.setRoute({ type: "home" })
@@ -179,16 +181,42 @@ test("native deletion of background work preserves the current session", async (
   }
 })
 
-test("native deletion of the final open session clears selection and preserves its project", async () => {
+test("native deletion of the final open session goes home and preserves its project", async () => {
   const host = await harness(["b"])
   try {
     host.delete("b")
     host.setRoute({ type: "home" })
     await Bun.sleep(0)
-    expect((await host.rpc.snapshot()).selected).toBeNull()
     // As with closing the last row, Switchboard stays fullscreen over the new-session screen.
     expect(host.route()).toEqual({ type: "plugin", id: "opencode-switchboard", name: "switchboard" })
     expect((await host.rpc.snapshot()).projects.work).toEqual({ name: "Work", open: true, sessions: [] })
+  } finally {
+    await host.close()
+  }
+})
+
+test("native deletion without recent history goes to the first open session", async () => {
+  const host = await harness()
+  try {
+    host.delete("b")
+    host.setRoute({ type: "home" })
+    await Bun.sleep(0)
+    expect(host.route()).toEqual({ type: "session", sessionID: "a" })
+  } finally {
+    await host.close()
+  }
+})
+
+test("native deletion of a session this TUI has left does not navigate it", async () => {
+  const host = await harness()
+  try {
+    // This TUI showed b, then moved to c; another client deletes b.
+    host.setRoute({ type: "session", sessionID: "c" })
+    await Bun.sleep(0)
+    host.delete("b")
+    await Bun.sleep(0)
+    expect(host.route()).toEqual({ type: "session", sessionID: "c" })
+    expect((await host.rpc.snapshot()).projects.work?.sessions).toEqual(["a", "c"])
   } finally {
     await host.close()
   }

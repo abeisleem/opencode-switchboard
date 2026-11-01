@@ -67,6 +67,8 @@ export async function loadCatalog(
   client: OpenCodeClient,
   state: State,
   attention = new Map<string, Attention>(),
+  /** The session this TUI shows, loaded even before its project lists it. */
+  current: string | null = null,
 ) {
   const [projects, active] = await Promise.all([client.project.list(), client.session.active()])
   const known = new Map<string, SessionInfo>()
@@ -105,7 +107,7 @@ export async function loadCatalog(
   const members = Object.values(state.projects)
     .filter((project) => project.open)
     .flatMap((project) => project.sessions)
-  if (state.selected && !known.has(state.selected)) await root(state.selected).catch(() => {})
+  if (current && !known.has(current)) await root(current).catch(() => {})
   const questions = new Set<string>()
   const approvals = new Set<string>()
   const issues: string[] = []

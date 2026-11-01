@@ -165,8 +165,8 @@ export type PanelProps = {
   /** Whether the panel has keyboard focus; clicks while unfocused leave focus where it is. */
   focused: boolean
   act: (action: Action) => void
-  /** The conversation this client shows; null on the new-session screen. Defaults to the shared selection. */
-  current?: string | null
+  /** The conversation this TUI shows, drawn bold; null on the new-session screen. */
+  current: string | null
   /** Open a session; the host then focuses its conversation. */
   open: (session: Session) => void
   close: () => void
@@ -399,8 +399,7 @@ export function InboxPanel(props: PanelProps) {
                 const index = () => entry().index
                 // Cursor and hover both brighten text and expose the close target.
                 const lit = createMemo(() => hovered() === key || (props.focused && cursor() === index()))
-                const current = () =>
-                  key === `session:${props.current === undefined ? props.state.selected : props.current}`
+                const current = () => key === `session:${props.current}`
                 // Mouse movement takes over from keyboard navigation; the current row stays bold only.
                 const fill = () =>
                   !current() && lit() && (keyboardHighlight() || hovered() === key)

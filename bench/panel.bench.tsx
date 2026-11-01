@@ -46,6 +46,7 @@ test("panel update cost (benchmark, not a pass/fail check)", async () => {
           loading={false}
           error=""
           focused
+          current={null}
           colors={{
             text: "#ffffff",
             muted: "#999999",

@@ -112,11 +112,13 @@ export const steps: Step[] = [
   // directory as the project key, so "/a/later" could be both Later's fold under "/a" and the fold of a project
   // at "/a/later". Directory keys start with "/", so a prefixed key cannot equal a project key. Only keys whose
   // project is saved are mapped; every other key, including project folds, stays as it was.
+  // The same release made the current session per TUI (issue #52): `selected`, `recent`, and `navigation` are
+  // dropped here rather than in a step of their own, because no release saved version 4 with them.
   step({
     from: 3,
     to: 4,
     schema: v3Schema,
-    up: (old) => ({
+    up: ({ selected: _selected, recent: _recent, navigation: _navigation, ...old }) => ({
       ...old,
       version: 4,
       sessions: Object.fromEntries(

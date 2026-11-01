@@ -75,8 +75,8 @@ test("real private server loads only in its sandbox, shares actions, and persist
     await rpc.act({ type: "visit", sessionID: b.id, observed: 0 }, options)
     await rpc.act({ type: "place", sessionID: b.id, placement: "parked" }, options)
     const marked = await rpc.act({ type: "unread", sessionID: b.id }, options)
-    // Marking unread neither navigates nor changes placement.
-    expect(marked.selected).toBe(b.id)
+    // Marking unread does not change placement, and the server records no current session.
+    expect(marked).not.toHaveProperty("selected")
     expect(marked.sessions[b.id]?.unread).toBe(true)
     expect(marked.sessions[b.id]?.placement).toBe("parked")
     const catalog = await loadCatalog(client, marked)

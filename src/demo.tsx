@@ -51,14 +51,14 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
     })
     project.sessions.push(session.id)
   }
-  seed.selected = "inbox"
-  seed.recent = ["inbox", "provider"]
   seed.sessions = {
     navigation: { placement: "active", unread: true },
     keys: { placement: "parked", unread: true },
     theme: { placement: "parked", unread: false },
   }
   const [state, setState] = createSignal(seed)
+  // The conversation this demo "shows", as a TUI's route would.
+  const [shown, setShown] = createSignal<string | null>("inbox")
   let actions: Parameters<NonNullable<PanelProps["keys"]>>[0]
   useKeyboard((event) => {
     if (props.focused === false) return
@@ -80,10 +80,10 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
         error=""
         loading={false}
         focused={props.focused ?? true}
-        current={props.current}
+        current={props.current === undefined ? shown() : props.current}
         colors={DEMO_PALETTE}
         act={(action) => setState(reduce(state(), action))}
-        open={(session) =>
+        open={(session) => {
           setState(
             reduce(
               state(),
@@ -91,7 +91,8 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
               { project: session.project, name: session.projectName, sessions: [session.id] },
             ),
           )
-        }
+          setShown(session.id)
+        }}
         close={() => renderer.destroy()}
         help={() => {}}
         diagnostics={() => {}}
