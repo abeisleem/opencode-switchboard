@@ -3,7 +3,27 @@
 A better session tabs panel for OpenCode: sessions grouped by project and worktree, unread marks, and a
 Parked fold for work you set aside until you come back to it.
 
-https://github.com/user-attachments/assets/2280657f-866c-4185-917f-e33c25de1ee0
+### Tour
+
+Projects group their sessions, and each row shows its state: running, waiting for approval, asking a question,
+failed, or unread. A worktree's sessions show its name.
+
+![Projects with sessions in every state](docs/media/switchboard-states.gif)
+
+`p` parks a session in its project's Parked fold, and `p` again unparks it. A folded Parked heading shows how many
+sessions it holds.
+
+![Parking and unparking sessions](docs/media/switchboard-parked.gif)
+
+`u` marks a session unread, and marks it read again.
+
+![Marking a session unread and read](docs/media/switchboard-unread.gif)
+
+A folded project sums up its sessions' states in badges.
+
+![Folding a project](docs/media/switchboard-folded.gif)
+
+[▶ Watch the full tour as a video](https://github.com/user-attachments/assets/14950937-ee17-4cef-be72-d8f964c5663a)
 
 OpenCode's native tabs are a flat strip of open sessions. Once you run several agents across a few projects,
 it gets hard to tell what is still working, what is waiting on you, and what finished while you were
@@ -26,26 +46,6 @@ elsewhere. The switchboard replaces the tabs with a panel built for that:
   ([#9](https://github.com/abeisleem/opencode-switchboard/issues/9)).
 - The working directory and git branch at the bottom of the panel
   ([#42](https://github.com/abeisleem/opencode-switchboard/issues/42)).
-
-### Tour
-
-Projects group their sessions, and each row shows its state: running, waiting for approval, asking a question,
-failed, or unread. A worktree's sessions show its name.
-
-![Projects with sessions in every state](docs/media/switchboard-states.gif)
-
-`p` parks a session in its project's Parked fold, and `p` again unparks it. A folded Parked heading shows how many
-sessions it holds.
-
-![Parking and unparking sessions](docs/media/switchboard-parked.gif)
-
-`u` marks a session unread, and marks it read again.
-
-![Marking a session unread and read](docs/media/switchboard-unread.gif)
-
-A folded project sums up its sessions' states in badges.
-
-![Folding a project](docs/media/switchboard-folded.gif)
 
 > **Status:** early preview (0.x). Requires OpenCode 2.2.0. OpenCode plugins can only add panels on the right
 > side of a session, so the switchboard opens there rather than where the native tabs sit.
