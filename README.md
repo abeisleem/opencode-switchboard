@@ -37,7 +37,7 @@ failed, or unread. A worktree's sessions show its name.
 `p` parks a session in its project's Parked fold, and `p` again unparks it. A folded Parked heading shows how many
 sessions it holds.
 
-![Parking and unparking sessions](docs/media/switchboard-later.gif)
+![Parking and unparking sessions](docs/media/switchboard-parked.gif)
 
 `u` marks a session unread, and marks it read again.
 
