@@ -2,13 +2,18 @@
 
 ## 0.1.5 (unreleased)
 
-- Fixed: switching between two Active sessions in a project no longer unfolds its folded Later. Opening a
-  session that is in Later still unfolds it.
+Update the plugin on the server and on every TUI machine together. An older server rejects ←, →, and parking
+with `p`. A TUI older than this release hides parked sessions until it updates; nothing is lost.
+
+- Later is now Parked: each project lists its sessions, then a Parked fold (`▸ Parked · 3` when folded). Saved
+  state migrates automatically and keeps your parked sessions and folds.
+- `p` parks the highlighted session, and unparks a parked one. It replaces `a` and `l`.
+- Fixed: switching between two unparked sessions in a project no longer unfolds its folded Parked section.
+  Opening a parked session still unfolds it.
 - The help dialog (`?`) shows your configured shortcuts, including a custom leader, and lists the shortcut
   that closes the current session's row. A command you have unbound is left out instead of showing Ctrl+X.
 - ← folds and → unfolds the highlighted heading, as in tree views. Pressing either one again leaves the heading
-  as it is. Update the plugin on the server and on every TUI machine together: an older server rejects these
-  keys.
+  as it is.
 
 ## 0.1.4 (2026-10-31)
 

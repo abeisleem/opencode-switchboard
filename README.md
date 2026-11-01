@@ -1,7 +1,7 @@
 # opencode-switchboard
 
 A better session tabs panel for OpenCode: sessions grouped by project and worktree, unread marks, and a
-Later fold to snooze work until you come back to it.
+Parked fold for work you set aside until you come back to it.
 
 https://github.com/user-attachments/assets/2280657f-866c-4185-917f-e33c25de1ee0
 
@@ -14,8 +14,8 @@ elsewhere. The switchboard replaces the tabs with a panel built for that:
 - **State at a glance.** Every row shows whether the session needs approval, has a question, is running,
   failed, or finished unread.
 - **Unread marks.** Mark a session unread to come back to it, the way you would an email.
-- **Later, to snooze work.** Move a session to its project's Later fold to get it out of the way without losing
-  it, and bring it back with one key. Unread and Later are independent.
+- **Parked, for work you set aside.** Park a session in its project's Parked fold to get it out of the way
+  without losing it, and unpark it with the same key. Parking and unread marks are independent.
 - **Nothing is deleted.** Closing a session or a project only hides it from the panel.
 - **Follows you across TUIs.** The switchboard lives on the OpenCode server, so every TUI connected to it sees
   the same projects, sessions, and unread marks.
@@ -34,10 +34,10 @@ failed, or unread. A worktree's sessions show its name.
 
 ![Projects with sessions in every state](docs/media/switchboard-states.gif)
 
-`l` moves a session to its project's Later fold, and `a` brings it back. A folded Later shows how many sessions it
-holds.
+`p` parks a session in its project's Parked fold, and `p` again unparks it. A folded Parked heading shows how many
+sessions it holds.
 
-![Moving sessions between Active and Later](docs/media/switchboard-later.gif)
+![Parking and unparking sessions](docs/media/switchboard-later.gif)
 
 `u` marks a session unread, and marks it read again.
 
@@ -128,8 +128,8 @@ These are OpenCode's default keys; yours may differ if you have rebound them.
 
 ### Read the panel
 
-Projects are listed by name. Under each one come its Active sessions, then a **Later** fold. The conversation
-you are viewing has a bold title. A session in a worktree or another folder of the project shows that folder's
+Projects are listed by name. Each project lists its sessions, then a **Parked** fold. The conversation you are
+viewing has a bold title. A session in a worktree or another folder of the project shows that folder's
 name on a second line.
 
 | Indicator | Meaning                                                                                        |
@@ -142,10 +142,10 @@ name on a second line.
 | `~`       | Approvals and questions for this workspace could not be read; click the error line for details |
 
 A folded project sums up what it hides: `? 2` waiting on you, a spinner and count for running or queued
-sessions, and `• 3` unread. Group and session spinners use the same animation and running color. A folded Later
-shows only how many sessions it holds, as `Later · 3`, so parked work stays quiet.
+sessions, and `• 3` unread. Group and session spinners use the same animation and running color. A folded Parked
+heading shows only how many sessions it holds, as `Parked · 3`, so parked work stays quiet.
 
-Unread is independent of placement: mark a session unread to come back to it, whether it is Active or Later.
+Unread is independent of placement: mark a session unread to come back to it, whether or not it is parked.
 
 ### Keys
 
@@ -155,7 +155,7 @@ Unread is independent of placement: mark a session unread to come back to it, wh
 | Enter                                   | Open session, or fold/unfold heading                  |
 | ←/→                                     | Fold / unfold heading                                 |
 | `u`                                     | Toggle read/unread                                    |
-| `a` / `l`                               | Move to Active / Later                                |
+| `p`                                     | Park or unpark                                        |
 | `x`                                     | Close session or project (keeps its saved state)      |
 | `<leader>w` (Ctrl+X, then W by default) | Close the current conversation's row from either pane |
 | `?`                                     | Help                                                  |
@@ -180,7 +180,7 @@ through OpenCode's native session list.
 
 ## How state is shared
 
-Open projects, their sessions, Active/Later placement, unread marks, the selected session, and folds are
+Open projects, their sessions, parked sessions, unread marks, the selected session, and folds are
 stored by the server part and shared by every client of that server. By design, your selection follows you:
 when two TUIs have the panel open, opening a session in one switches the other to it, so you can move between
 machines without losing your place. Cursor and scroll position are per client.
