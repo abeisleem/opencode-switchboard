@@ -286,6 +286,24 @@ test("opening a session starts a new project with only that session and unfolds 
   expect(state.projects.new?.sessions).toEqual(["n"])
 })
 
+test("switching between Active sessions leaves the project's folded Later folded", () => {
+  let state = reduce(
+    initialState(),
+    { type: "project-open", project: "p", name: "Project" },
+    { project: "p", name: "Project", sessions: ["a", "b", "c"] },
+  )
+  state = reduce(state, { type: "place", sessionID: "c", placement: "later" })
+  state = reduce(state, { type: "collapse", key: laterKey("p") })
+  // The server attaches an admission to every select, Active or Later.
+  for (const id of ["a", "b"])
+    state = reduce(
+      state,
+      { type: "select", sessionID: id, observed: 0 },
+      { project: "p", name: "Project", sessions: [id] },
+    )
+  expect(state.collapsed).toContain(laterKey("p"))
+})
+
 test("version 1 and 2 state migrates: History closes, Focus becomes Active, filters drop", () => {
   const legacy = (version: number, placement: string) => ({
     ...openState(),
