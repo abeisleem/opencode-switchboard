@@ -11,6 +11,7 @@ import {
   type Session,
 } from "../src/model"
 import { createInboxStore } from "../src/store"
+import { createClientState, defaultClientState, readClientState } from "../src/client"
 import { readState, steps } from "../src/migrate"
 import { createSessionHistory, fallbackSession, recordShown } from "../src/selection"
 
@@ -524,4 +525,54 @@ test("a version without a migration step, or no version, fails instead of resett
   expect(() => readState({ ...openState(), version: 0 })).toThrow("version 0, which has no migration")
   expect(() => readState({ ...openState(), version: undefined })).toThrow("no version")
   expect(() => readState(null)).toThrow("no version")
+})
+
+test("client state reads a missing, corrupt, or foreign saved default as the defaults", () => {
+  const defaults = defaultClientState()
+  for (const saved of [undefined, null, "projects", 42, [], {}, { version: 1 }, { view: 7 }])
+    expect(readClientState(saved)).toEqual(defaults)
+  // A view this release does not know, e.g. saved by a newer release, falls back to the projects view.
+  expect(readClientState({ version: 1, view: "board" })).toEqual(defaults)
+  // Unknown keys are ignored; a known value is kept.
+  expect(readClientState({ version: 1, view: "projects", sort: "recent", future: { a: 1 } })).toEqual(
+    defaults,
+  )
+  // A breaking version this release does not know yields the defaults rather than a misread.
+  expect(readClientState({ version: 2, view: "projects" })).toEqual(defaults)
+})
+
+test("client state reads the saved default once, keeps the view in memory, and saves only a change", async () => {
+  let file: Record<string, unknown> = { version: 1, view: "projects", future: true }
+  const memories = new Map<string, unknown>()
+  let writes = 0
+  const storage = {
+    store: <Value extends object>(_key: string, _options: { readonly initial: Value }) =>
+      [
+        file as Value,
+        async (mutation: (draft: Value) => void) => {
+          const draft = structuredClone(file) as Value
+          mutation(draft)
+          file = draft as Record<string, unknown>
+          writes++
+        },
+      ] as const,
+    memory: <Value extends object>(key: string, options: { readonly initial: Value }) => {
+      if (!memories.has(key)) memories.set(key, options.initial)
+      const value = memories.get(key) as Value
+      return [value, (mutation: (draft: Value) => void) => mutation(value)] as const
+    },
+  }
+  const client = createClientState(storage)
+  expect(client.state).toEqual({ version: 1, view: "projects" })
+  await client.setView("projects")
+  expect(writes).toBe(0)
+  // Another TUI on this machine saves a different default; this TUI, even after a plugin reload, keeps its own.
+  file = { version: 1, view: "board" }
+  expect(createClientState(storage).state.view).toBe("projects")
+  // Saving keeps keys a newer release wrote.
+  file = { version: 1, view: "projects", future: true }
+  memories.set("client", { state: { version: 1, view: "board" } })
+  await createClientState(storage).setView("projects")
+  expect(writes).toBe(1)
+  expect(file).toEqual({ version: 1, view: "projects", future: true })
 })

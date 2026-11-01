@@ -14,6 +14,7 @@ import {
   Show,
 } from "solid-js"
 import { Switchboard } from "./rpc"
+import { createClientState } from "./client"
 import { initialState, parkedKey, projectOf, type Action, type Session, type State } from "./model"
 import { liveSession, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
@@ -90,6 +91,8 @@ export default Plugin.define({
       else history.current = null
       setShown(id)
     }
+    // How this TUI shows the switchboard; only the "projects" view exists so far (#53).
+    createClientState(ctx.storage)
     // Per-machine and durable, so the native-tabs hint shows once, not on every open.
     const [hints, setHints] = ctx.storage.store("hints", { initial: { nativeTabs: false } })
     const [loading, setLoading] = createSignal(false)
