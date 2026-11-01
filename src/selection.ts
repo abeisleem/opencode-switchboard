@@ -1,29 +1,33 @@
-import type { Plugin } from "@opencode/plugin/tui"
 import type { Row, State } from "./model"
 
-type Router = Plugin.Context["ui"]["router"]
-
 /**
- * Where this client must go to show the shared selection, or undefined when its
- * route already shows that conversation family. A subagent session therefore
- * stays open instead of bouncing to its root, and no no-op navigation is issued.
+ * The sessions this TUI has shown, newest first, kept in TUI memory: each TUI has its own current session, and
+ * the server never learns it. `current` is the conversation this TUI shows, or showed last before going home.
  */
-export function followRoute(
-  route: ReturnType<Router["current"]>,
-  selected: string | null,
-  root: (sessionID: string) => string,
-): Parameters<Router["navigate"]>[0] | undefined {
-  const here = route.type === "session" ? root(route.sessionID) : null
-  if (here === selected) return
-  return selected ? { type: "session", sessionID: selected } : { type: "home" }
+export type SessionHistory = { current: string | null; recent: string[] }
+
+export function createSessionHistory(): SessionHistory {
+  return { current: null, recent: [] }
+}
+
+/** Records a session this TUI shows. History is bounded; an open session can outlive its entry. */
+export function recordShown(history: SessionHistory, id: string) {
+  history.current = id
+  history.recent = [id, ...history.recent.filter((item) => item !== id)].slice(0, 50)
 }
 
 /**
- * Whether a newly accepted shared state navigates this client. The first state after activation
- * only syncs it; following it would replace the displayed route with the last saved selection.
+ * Where this TUI goes after its current session's row closes: the most recent session still open, else the
+ * first open one, else nowhere (home).
  */
-export function navigated(synced: boolean, previous: State, next: State) {
-  return synced && next.navigation !== previous.navigation
+export function fallbackSession(state: State, recent: string[], closed: string) {
+  const open = new Set(
+    Object.values(state.projects)
+      .filter((project) => project.open)
+      .flatMap((project) => project.sessions),
+  )
+  open.delete(closed)
+  return recent.find((id) => open.has(id)) ?? open.values().next().value ?? null
 }
 
 export type SelectionMemory = { items: Row[]; key: string; index: number; scrollTop: number; owner?: symbol }

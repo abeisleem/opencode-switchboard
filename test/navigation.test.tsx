@@ -4,7 +4,7 @@ import { RGBA, TextAttributes } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import { createSignal, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { initialState, type Action, type State } from "../src/model"
+import { actionSchema, initialState, type Action, type State } from "../src/model"
 import server from "../src/server"
 import plugin from "../src/tui"
 
@@ -40,25 +40,24 @@ async function harness(
   options: {
     route?: Route
     members?: string[]
-    selectGate?: Promise<void>
+    visitGate?: Promise<void>
     live?: Partial<LiveSession>
     active?: () => Record<string, unknown>
     approvals?: () => string[]
     focus?: FakeFocus
     shortcuts?: (id: string) => readonly string[]
-    collapsed?: string[]
+    /** Sessions that belong to a second open project, "other", instead of "work". */
+    other?: string[]
   } = {},
 ) {
   let saved = initialState()
   saved.revision = 1
-  saved.selected = "a"
-  saved.recent = ["a", "b"]
   saved.projects.work = { name: "Work", open: true, sessions: options.members ?? ["a", "b"] }
-  saved.collapsed = options.collapsed ?? []
+  if (options.other) saved.projects.other = { name: "Other", open: true, sessions: options.other }
   const sessions = ["a", "b", "c"].map((id) => ({
     id,
     title: `Task ${id}`,
-    projectID: "work",
+    projectID: options.other?.includes(id) ? "other" : "work",
     location: { directory: "/work" },
     time: {},
   }))
@@ -94,8 +93,11 @@ async function harness(
     },
   } as unknown as Parameters<typeof server.setup>[0])
   const [route, navigate] = createSignal<Route>(options.route ?? { type: "session", sessionID: "b" })
+  // The side panel the host shows beside a session, by name. Only a session view has one.
+  const [panel, setPanel] = createSignal<string>()
   const layers: (() => Layer)[] = []
   const actions: Action[] = []
+  const dispatched: string[] = []
   let render!: () => JSX.Element
   let renderApp!: () => JSX.Element
   let cleanup!: ReturnType<typeof plugin.setup>
@@ -108,7 +110,7 @@ async function harness(
         snapshot: rpc.snapshot,
         act: async (action: Action) => {
           actions.push(action)
-          if (action.type === "select") await options.selectGate
+          if (action.type === "visit") await options.visitGate
           return rpc.act(action)
         },
         events: {
@@ -118,7 +120,12 @@ async function harness(
           },
         },
       }),
-      project: { list: async () => [{ id: "work", name: "Work", canonical: "/work" }] },
+      project: {
+        list: async () => [
+          { id: "work", name: "Work", canonical: "/work" },
+          { id: "other", name: "Other", canonical: "/other" },
+        ],
+      },
       session: {
         get,
         active: async () => {
@@ -173,7 +180,16 @@ async function harness(
         if (slot.append === "app") renderApp = slot.render
         return noop
       },
-      panel: { open: () => route().type === "session", current: () => undefined, close: noop },
+      panel: {
+        open: (name: string) => {
+          if (route().type !== "session") return false
+          setPanel(name)
+          return true
+        },
+        // Reported as closed, as before this field was modeled, so opening the switchboard always remounts it.
+        current: () => undefined,
+        close: () => setPanel(undefined),
+      },
       tabs: { enabled: () => false },
       dialog: {
         show: (render: () => JSX.Element, onClose?: () => void) =>
@@ -186,7 +202,7 @@ async function harness(
       },
     },
     keymap: {
-      dispatch: noop,
+      dispatch: (command: string) => dispatched.push(command),
       shortcuts: options.shortcuts ?? (() => []),
       layer: (factory: () => Layer) => {
         layers.push(factory)
@@ -212,7 +228,22 @@ async function harness(
     app,
     route,
     navigate,
+    /** The side panel the host shows, if any. */
+    panel,
+    /**
+     * Opens a session the way OpenCode's Ctrl+O menu or session list does: the new session view replaces the
+     * old one and its side panel, showing the native sidebar until a plugin opens its panel again.
+     */
+    hostOpen(sessionID: string) {
+      setPanel(undefined)
+      navigate({ type: "session", sessionID })
+    },
+    /** Closes the side panel without leaving the session, as the host can. */
+    hostClosePanel() {
+      setPanel(undefined)
+    },
     actions,
+    dispatched,
     rpc,
     saved: () => saved,
     sessions,
@@ -246,14 +277,13 @@ async function harness(
   }
 }
 
-test("startup adopts --session instead of the previously saved selection", async () => {
+test("startup shows --session as this TUI's current session", async () => {
   const run = await harness()
   try {
     await run.open()
     await run.frame()
     expect(run.route()).toEqual({ type: "session", sessionID: "b" })
-    expect(run.saved().selected).toBe("b")
-    expect(run.saved().recent.slice(0, 2)).toEqual(["b", "a"])
+    expect(run.actions).toContainEqual({ type: "visit", sessionID: "b", observed: 0 })
     expect(run.bold("Task b")).toBe(true)
     expect(run.bold("Task a")).toBe(false)
     await run.key("u")
@@ -263,13 +293,13 @@ test("startup adopts --session instead of the previously saved selection", async
   }
 })
 
-test("the current marker follows the displayed route while selection synchronization is pending", async () => {
+test("the current marker follows the displayed route while its visit is pending", async () => {
   const gate = Promise.withResolvers<void>()
-  const run = await harness({ selectGate: gate.promise })
+  const run = await harness({ visitGate: gate.promise })
   const opening = run.open()
   try {
     await run.frame()
-    expect(run.saved().selected).toBe("a")
+    expect(run.saved().sessions.b).toBeUndefined()
     expect(run.bold("Task b")).toBe(true)
     expect(run.bold("Task a")).toBe(false)
   } finally {
@@ -285,7 +315,6 @@ test("startup admits an unlisted session and preserves a displayed subagent rout
     await run.open()
     await run.frame()
     expect(run.route()).toEqual({ type: "session", sessionID: "child" })
-    expect(run.saved().selected).toBe("b")
     expect(run.saved().projects.work?.sessions).toEqual(["b", "a"])
     expect(run.bold("Task b")).toBe(true)
   } finally {
@@ -293,31 +322,78 @@ test("startup admits an unlisted session and preserves a displayed subagent rout
   }
 })
 
-test("later selections from another client still synchronize the route and marker", async () => {
+test("another client's visit changes shared data but never this TUI's route or current marker", async () => {
   const run = await harness()
   try {
     await run.open()
-    await run.rpc.act({ type: "select", sessionID: "c", observed: 0 })
     await run.frame()
-    expect(run.route()).toEqual({ type: "session", sessionID: "c" })
-    expect(run.bold("Task c")).toBe(true)
-    expect(run.bold("Task b")).toBe(false)
+    const actions = run.actions.length
+    // Another TUI opens c: it is admitted and read for everyone, but this TUI keeps showing b.
+    await run.rpc.act({ type: "visit", sessionID: "c", observed: 0 })
+    expect(await until(() => run.app.captureCharFrame().includes("Task c"))).toBe(true)
+    await run.frame()
+    expect(run.saved().projects.work?.sessions).toEqual(["c", "a", "b"])
+    expect(run.route()).toEqual({ type: "session", sessionID: "b" })
+    expect(run.bold("Task b")).toBe(true)
+    expect(run.bold("Task c")).toBe(false)
+    // This TUI sent nothing in response.
+    expect(run.actions.slice(actions)).toEqual([])
+    // Its <leader>w still closes the conversation it shows.
+    await run.close().run()
+    expect(run.actions.filter((action) => action.type === "session-remove")).toEqual([
+      { type: "session-remove", sessionID: "b" },
+    ])
   } finally {
     await run.dispose()
   }
 })
 
-test("reopening adopts this client's route after another client changed the saved selection", async () => {
+test("an older TUI's select still visits, without moving this TUI", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    // OpenCode parses RPC input before the handler runs, so the server receives the parsed visit.
+    await run.rpc.act(actionSchema.parse({ type: "select", sessionID: "c", observed: 0 }))
+    expect(await until(() => run.app.captureCharFrame().includes("Task c"))).toBe(true)
+    expect(run.saved().sessions.c).toEqual({ placement: "active", unread: false, seen: 0 })
+    expect(run.route()).toEqual({ type: "session", sessionID: "b" })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("another client closing this TUI's current session removes its row but keeps the conversation open", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    expect(await until(() => !run.app.captureCharFrame().includes("Task b"))).toBe(true)
+    expect(run.route()).toEqual({ type: "session", sessionID: "b" })
+    // With no row left for it, <leader>w has nothing to close.
+    const enabled = run.close().enabled
+    expect(typeof enabled === "function" && enabled()).toBe(false)
+    // Closing its project elsewhere does not move this TUI either.
+    await run.rpc.act({ type: "project-close", project: "work" })
+    expect(await until(() => !run.app.captureCharFrame().includes("Task a"))).toBe(true)
+    expect(run.route()).toEqual({ type: "session", sessionID: "b" })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("reopening adopts this client's route after another client visited elsewhere", async () => {
   const run = await harness()
   try {
     await run.open()
     await run.key("escape")
-    await run.rpc.act({ type: "select", sessionID: "c", observed: 0 })
+    await run.rpc.act({ type: "visit", sessionID: "c", observed: 0 })
     run.navigate({ type: "session", sessionID: "a" })
     await run.open()
     await run.frame()
     expect(run.route()).toEqual({ type: "session", sessionID: "a" })
-    expect(run.saved().selected).toBe("a")
+    expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "a", observed: 0 })
     expect(run.bold("Task a")).toBe(true)
   } finally {
     await run.dispose()
@@ -347,6 +423,179 @@ test("leader-w closes the viewed session rather than the panel cursor and keeps 
   }
 })
 
+/** The command that hands keyboard focus from the panel to the conversation; see `returnFocus` in src/tui.tsx. */
+const FOCUS_CONVERSATION = "pane.focus.left"
+
+test("x on the current session's row goes back but keeps focus in the panel", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    run.dispatched.length = 0
+    run.actions.length = 0
+    await run.key("x") // The cursor starts on the current session, b.
+    expect(await until(() => JSON.stringify(run.route()) === '{"type":"session","sessionID":"a"}')).toBe(true)
+    await Bun.sleep(10) // Let any deferred focus hand-off run.
+    expect(run.dispatched).not.toContain(FOCUS_CONVERSATION)
+    // The fallback is still visited: recorded as current and marked read.
+    expect(run.actions).toContainEqual({ type: "visit", sessionID: "a", observed: 0 })
+    await run.frame()
+    expect(run.bold("Task a")).toBe(true)
+    // Focus stayed in the panel, so x closes the next row too.
+    await run.key("x")
+    expect(await until(() => run.saved().projects.work?.sessions.length === 0)).toBe(true)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("closing the project holding the current session goes back but keeps focus in the panel", async () => {
+  const run = await harness({ other: ["c"] })
+  try {
+    await run.open()
+    await run.frame()
+    run.dispatched.length = 0
+    run.actions.length = 0
+    await run.key("up,k")
+    await run.key("up,k") // Cursor on the Work heading; the conversation remains b.
+    await run.key("x")
+    expect(await until(() => JSON.stringify(run.route()) === '{"type":"session","sessionID":"c"}')).toBe(true)
+    await Bun.sleep(10)
+    expect(run.saved().projects.work?.open).toBe(false)
+    expect(run.dispatched).not.toContain(FOCUS_CONVERSATION)
+    expect(run.actions).toContainEqual({ type: "visit", sessionID: "c", observed: 0 })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("leader-w goes back and hands focus to the conversation", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    run.dispatched.length = 0
+    await run.close().run()
+    expect(JSON.stringify(run.route())).toBe('{"type":"session","sessionID":"a"}')
+    expect(await until(() => run.dispatched.includes(FOCUS_CONVERSATION))).toBe(true)
+    expect(run.dispatched.filter((command) => command === FOCUS_CONVERSATION)).toHaveLength(1)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("opening a session from the panel hands focus to its conversation", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    run.dispatched.length = 0
+    await run.key("up,k")
+    await run.key("return")
+    expect(JSON.stringify(run.route())).toBe('{"type":"session","sessionID":"a"}')
+    expect(await until(() => run.dispatched.includes(FOCUS_CONVERSATION))).toBe(true)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a session OpenCode opens itself ends with the switchboard panel shown again", async () => {
+  const run = await harness({ members: ["a", "b", "c"] })
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.panel()).toBe("switchboard")
+    run.hostOpen("c")
+    expect(run.panel()).toBeUndefined()
+    expect(await until(() => run.panel() === "switchboard")).toBe(true)
+    expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "c", observed: 0 })
+    // Going back after closing the current row keeps the panel too, without handing focus over.
+    await run.open() // Moves the cursor to the current session, c.
+    run.dispatched.length = 0
+    await run.key("x")
+    expect(await until(() => JSON.stringify(run.route()) === '{"type":"session","sessionID":"b"}')).toBe(true)
+    await Bun.sleep(10)
+    expect(run.panel()).toBe("switchboard")
+    expect(run.dispatched).not.toContain(FOCUS_CONVERSATION)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("another client's change never opens the panel here", async () => {
+  const run = await harness({ members: ["a", "b", "c"] })
+  try {
+    await run.open()
+    await run.frame()
+    run.hostOpen("c")
+    expect(await until(() => run.panel() === "switchboard")).toBe(true)
+    // The host closes the side panel while the switchboard stays enabled; another TUI then changes shared state.
+    run.hostClosePanel()
+    await run.rpc.act({ type: "visit", sessionID: "a", observed: 0 })
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    await run.rpc.act({ type: "place", sessionID: "c", placement: "parked" })
+    await Bun.sleep(20)
+    expect(run.saved().projects.work?.sessions).toEqual(["a", "c"])
+    expect(run.panel()).toBeUndefined()
+    expect(run.route()).toEqual({ type: "session", sessionID: "c" })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("closing the current session goes back through this TUI's own recent sessions", async () => {
+  const run = await harness({ members: ["a", "b", "c"] })
+  try {
+    await run.open()
+    // This TUI shows c, then b. Another client visiting a leaves this TUI's history alone.
+    run.navigate({ type: "session", sessionID: "c" })
+    await run.frame()
+    run.navigate({ type: "session", sessionID: "b" })
+    await run.frame()
+    await run.rpc.act({ type: "visit", sessionID: "a", observed: 0 })
+    await run.close().run()
+    await run.frame()
+    expect(run.route()).toEqual({ type: "session", sessionID: "c" })
+    expect(run.bold("Task c")).toBe(true)
+    // x on the current row goes back the same way: c's most recent survivor is gone, so the first open, a.
+    await run.key("x")
+    expect(await until(() => JSON.stringify(run.route()) === '{"type":"session","sessionID":"a"}')).toBe(true)
+    expect(run.saved().projects.work?.sessions).toEqual(["a"])
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("x on a row this TUI is not showing never navigates it", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    await run.key("up,k") // Cursor on a; conversation remains b.
+    await run.key("x")
+    expect(await until(() => run.saved().projects.work?.sessions.join() === "b")).toBe(true)
+    await run.frame()
+    expect(run.route()).toEqual({ type: "session", sessionID: "b" })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("closing the project holding the current session goes home", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    await run.key("up,k")
+    await run.key("up,k") // Cursor on the project heading.
+    await run.key("x")
+    expect(await until(() => run.route().type === "plugin")).toBe(true)
+    expect(run.saved().projects.work?.open).toBe(false)
+  } finally {
+    await run.dispose()
+  }
+})
+
 test("closing the last viewed root from a subagent returns home and disables close", async () => {
   const run = await harness({ route: { type: "session", sessionID: "child" }, members: ["b"] })
   try {
@@ -354,7 +603,6 @@ test("closing the last viewed root from a subagent returns home and disables clo
     expect(run.close()).toBeDefined()
     await run.close().run()
     await run.frame()
-    expect(run.saved().selected).toBeNull()
     expect(run.saved().projects.work?.sessions).toEqual([])
     expect(run.route().type).toBe("plugin")
     const enabled = run.close().enabled
@@ -375,7 +623,7 @@ test("startup at home does not select saved work and inactive Switchboard leaves
     expect(enabled()).toBe(false)
     await run.open()
     await run.frame()
-    expect(run.saved().selected).toBe("a")
+    expect(run.actions.some((action) => action.type === "visit")).toBe(false)
     expect(run.bold("Task a")).toBe(false)
     expect(enabled()).toBe(false)
     run.navigate({ type: "session", sessionID: "b" })
@@ -575,9 +823,14 @@ test("the panel folds headings with ← and →", async () => {
 })
 
 test("revealing the viewed session unfolds its project without toggling", async () => {
-  // Viewing the saved selection sends no select, whose admission would unfold the project itself.
-  const run = await harness({ collapsed: ["work"], route: { type: "session", sessionID: "a" } })
+  const run = await harness({ route: { type: "session", sessionID: "a" } })
   try {
+    await run.open()
+    await run.frame()
+    // Another client folds the project. Reopening sends no visit for the session this TUI already shows,
+    // whose admission would unfold the project itself.
+    await run.rpc.act({ type: "fold", key: "work", folded: true })
+    run.actions.length = 0
     await run.open()
     await run.frame()
     expect(run.actions).toEqual([{ type: "fold", key: "work", folded: false }])

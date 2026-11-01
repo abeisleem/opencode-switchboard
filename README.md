@@ -16,9 +16,9 @@ elsewhere. The switchboard replaces the tabs with a panel built for that:
 - **Unread marks.** Mark a session unread to come back to it, the way you would an email.
 - **Parked, for work you set aside.** Park a session in its project's Parked fold to get it out of the way
   without losing it, and unpark it with the same key. Parking and unread marks are independent.
-- **Nothing is deleted.** Closing a session or a project only hides it from the panel.
-- **Follows you across TUIs.** The switchboard lives on the OpenCode server, so every TUI connected to it sees
-  the same projects, sessions, and unread marks.
+- **Nothing is deleted.** Closing a session or a project hides it from the panel.
+- **Shared across TUIs.** The switchboard lives on the OpenCode server, so every TUI connected to it sees
+  the same projects, sessions, and unread marks. Each TUI still shows its own conversation.
 
 ### Coming next
 
@@ -110,8 +110,8 @@ Run `/switchboard`, press `<leader>i` (**Ctrl+X, then I** by default), or pick *
 command palette.
 
 - The first time you open it from a conversation, it adds that conversation's project.
-- Starting with `--session` or reopening the panel adopts the conversation you are actually viewing,
-  including when a different session was selected previously.
+- Starting with `--session` or reopening the panel adopts the conversation you are viewing, and adds it to its
+  project if needed.
 - Pressing it again while the panel is open moves the cursor to the conversation you are viewing.
 - **Esc** closes the panel. Until you open it again, the switchboard does not track the sessions you open.
 
@@ -156,7 +156,7 @@ Unread is independent of placement: mark a session unread to come back to it, wh
 | ←/→                                     | Fold / unfold heading                                 |
 | `u`                                     | Toggle read/unread                                    |
 | `p`                                     | Park or unpark                                        |
-| `x`                                     | Close session or project (keeps its saved state)      |
+| `x`                                     | Close session or project (never deletes it)           |
 | `<leader>w` (Ctrl+X, then W by default) | Close the current conversation's row from either pane |
 | `?`                                     | Help                                                  |
 | Esc                                     | Close the panel                                       |
@@ -171,8 +171,9 @@ Opening a session, with Enter or a click, moves focus to its conversation so you
 `<leader>i` (**Ctrl+X, then I** by default) to return to the panel.
 
 `<leader>w` (**Ctrl+X, then W** by default) closes the conversation you are viewing, independently of the panel
-cursor, and returns to another open session. It is active while Switchboard is open; closing the panel restores
-the native shortcut behavior. Rebind it with `opencode-switchboard.close-current` in `cli.json`.
+cursor, and returns to the session you viewed most recently in this TUI that is still open. It is active while
+Switchboard is open; closing the panel restores the native shortcut behavior. Rebind it with
+`opencode-switchboard.close-current` in `cli.json`.
 
 **The switchboard never deletes, archives, or stops sessions.** Closing removes a session from the panel;
 opening it again brings it back. A closed project keeps its sessions for when you reopen it. Delete sessions
@@ -180,10 +181,13 @@ through OpenCode's native session list.
 
 ## How state is shared
 
-Open projects, their sessions, parked sessions, unread marks, the selected session, and folds are
-stored by the server part and shared by every client of that server. By design, your selection follows you:
-when two TUIs have the panel open, opening a session in one switches the other to it, so you can move between
-machines without losing your place. Cursor and scroll position are per client.
+The server part stores the organization, and every client of that server shares it: open projects, their
+sessions, parked sessions, unread marks, and folds.
+
+Each TUI keeps its own place: the conversation it shows, the sessions it showed recently, and the panel's
+cursor and scroll position. Opening a session in one TUI does not switch the others. Closing a session's row
+in one TUI removes the row everywhere, but only the TUI that closed it moves to another session; the others
+keep the conversation open. A TUI forgets its recent sessions when it exits.
 
 OpenCode's desktop and mobile apps do not show the panel. Viewing a finished session there still counts as
 reading it, but does not clear a session you marked unread.

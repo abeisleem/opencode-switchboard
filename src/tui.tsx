@@ -14,13 +14,14 @@ import {
   Show,
 } from "solid-js"
 import { Switchboard } from "./rpc"
+import { createClientState } from "./client"
 import { initialState, parkedKey, projectOf, type Action, type Session, type State } from "./model"
 import { liveSession, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
 import { HelpDialog, helpShortcuts } from "./help"
 import { InboxPanel, type PanelProps } from "./panel"
 import { palette } from "./palette"
-import { createSelectionMemory, followRoute, navigated } from "./selection"
+import { createSelectionMemory, createSessionHistory, fallbackSession, recordShown } from "./selection"
 
 /** The host's plugin boundary only toasts render crashes; keep the stack for diagnosis. */
 const ERROR_LOG = join(tmpdir(), "opencode-switchboard-errors.log")
@@ -77,17 +78,32 @@ export default Plugin.define({
       initial: { cursors: new Map([["inbox", createSelectionMemory()]]) },
     })
     const selectionMemory = local.cursors.get("inbox")!
+    // This TUI's current session and the sessions it showed recently. Per TUI and in memory, like OpenCode's tab
+    // history: it survives plugin reloads and is forgotten on restart. Another TUI never changes it.
+    const [sessionMemory] = ctx.storage.memory("session-history", {
+      initial: { tuis: new Map([["tui", createSessionHistory()]]) },
+    })
+    const history = sessionMemory.tuis.get("tui")!
+    // `history.current`, readable reactively: the fullscreen switchboard marks it as the current row.
+    const [shown, setShown] = createSignal(history.current)
+    function show(id: string | null) {
+      if (id) recordShown(history, id)
+      else history.current = null
+      setShown(id)
+    }
+    // How this TUI shows the switchboard; only the "projects" view exists so far (#53).
+    createClientState(ctx.storage)
     // Per-machine and durable, so the native-tabs hint shows once, not on every open.
     const [hints, setHints] = ctx.storage.store("hints", { initial: { nativeTabs: false } })
     const [loading, setLoading] = createSignal(false)
     let enabled = false
     let stopped = false
-    let mirrored: string | null | undefined
-    // Set when the inbox itself navigates home (e.g. after closing a project), so the
+    // Set when the switchboard itself navigates home (e.g. after closing a project), so the
     // home screen it lands on does not count as choosing that project.
-    let mirroredHome = false
-    // Set once this activation has loaded shared state; see `navigated`.
-    let synced = false
+    let navigatedHome = false
+    // The session the switchboard itself went back to after closing the current row. The route effect still
+    // visits it, but leaves keyboard focus where it is: in the panel, so `x` can close the next row.
+    let wentBack: string | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     let membership = ""
     let refreshAgain = false
@@ -145,17 +161,55 @@ export default Plugin.define({
       homeLocation = route.type === "home" ? locationProject(ctx.location) : undefined
       ctx.ui.router.navigate({ type: "plugin", name: "switchboard" })
     }
-    /** The conversation this client shows: none on, or fullscreen over, the new-session screen. */
+    /**
+     * The conversation this TUI shows: its route, or the session it showed last when the fullscreen switchboard
+     * covers it. None on, or fullscreen over, the new-session screen.
+     */
     function viewing() {
       const route = ctx.ui.router.current()
       if (route.type === "session") return ctx.data.session.root(route.sessionID)
       if (route.type === "home" || (route.type === "plugin" && fromHome())) return null
-      return state().selected
+      return shown()
+    }
+    /** The root of the session this TUI's route shows, or null. */
+    function routeRoot() {
+      const route = ctx.ui.router.current()
+      return route.type === "session" ? ctx.data.session.root(route.sessionID) : null
+    }
+    /**
+     * Shows a session, or home, beside the panel. A route already showing that conversation family stays, so a
+     * subagent stays open; navigating to the route already shown would not notify the route effect anyway.
+     */
+    function navigate(id: string | null) {
+      const moved = routeRoot() !== id
+      if (moved) {
+        navigatedHome = id === null
+        ctx.ui.router.navigate(id ? { type: "session", sessionID: id } : { type: "home" })
+      }
+      showPanel()
+      return moved
+    }
+    /**
+     * Leaves a session whose row this TUI closed or saw deleted: to the most recent session still open, else the
+     * first open one, else home. Only the TUI that closes a row leaves it; others keep showing the conversation.
+     */
+    function goBack(closed: string) {
+      const destination = fallbackSession(state(), history.recent, closed)
+      show(destination)
+      wentBack = destination ?? undefined
+      if (!navigate(destination)) wentBack = undefined
+    }
+    /** Applies an action from this TUI; if it closed the row of the session shown here, goes back. */
+    async function change(action: Action) {
+      const id = viewing()
+      const listed = id !== null && projectOf(state(), id) !== undefined
+      await act(action)
+      if (listed && enabled && viewing() === id && !projectOf(state(), id)) goBack(id)
     }
     function accept(next: State) {
       // Revisions only grow; an equal one is the state already shown (e.g. a duplicate snapshot).
+      // Another TUI's change updates rows here, but never this TUI's route.
       if (stopped || next.revision <= state().revision) return
-      const changed = navigated(synced, state(), next)
       const admitted = Object.entries(next.projects)
         .filter(([, project]) => project.open)
         .map(([id, project]) => `${id}:${project.sessions.join(",")}`)
@@ -164,25 +218,16 @@ export default Plugin.define({
       membership = admitted
       setState(next)
       if (enabled && membershipChanged) void refresh()
-      if (!enabled || !changed) return
-      const destination = followRoute(ctx.ui.router.current(), next.selected, (id) =>
-        ctx.data.session.root(id),
-      )
-      // Navigating to the route already shown does not notify the route effect,
-      // so only mark navigations that actually change it as mirrored.
-      if (destination) {
-        mirrored = next.selected
-        mirroredHome = destination.type === "home"
-        ctx.ui.router.navigate(destination)
-      }
-      showPanel()
     }
+    /** Sends an action to the server; resolves whether it succeeded. */
     async function act(action: Action) {
       try {
         accept(await rpc.act(action, options))
         setError("")
+        return true
       } catch (cause) {
         report(cause)
+        return false
       }
     }
     async function refresh() {
@@ -194,8 +239,7 @@ export default Plugin.define({
       setLoading(true)
       try {
         accept(await rpc.snapshot({}, options))
-        synced = true
-        const result = await loadCatalog(ctx.client, state(), attention)
+        const result = await loadCatalog(ctx.client, state(), attention, history.current)
         if (stopped) return
         // Identical catalogs must not re-render the panel; most refreshes change nothing.
         const catalog = JSON.stringify(result.sessions)
@@ -231,7 +275,7 @@ export default Plugin.define({
         if (homeLocation) await openLocationProject(homeLocation)
         return
       }
-      const id = route.type === "session" ? ctx.data.session.root(route.sessionID) : state().selected
+      const id = route.type === "session" ? ctx.data.session.root(route.sessionID) : history.current
       if (!id) return
       const project = projectOf(state(), id)
       if (!project) return
@@ -243,7 +287,6 @@ export default Plugin.define({
     }
     async function openInbox() {
       const alreadyOpen = enabled && ctx.ui.panel.current()?.name === PANEL
-      if (!enabled) synced = false
       enabled = true
       focusConversation = false
       if (alreadyOpen) {
@@ -253,11 +296,11 @@ export default Plugin.define({
       } else showPanel()
       suggestDisablingTabs()
       await refresh()
-      // Startup (--session) and reopening must adopt the displayed route, not the last saved selection.
+      // Startup (--session), and reopening after navigating while the switchboard was closed, adopt the route.
       const route = ctx.ui.router.current()
       if (route.type === "session") {
         const root = ctx.data.session.root(route.sessionID)
-        if (state().selected !== root || !projectOf(state(), root)) await visit(route.sessionID)
+        if (history.current !== root || !projectOf(state(), root)) await visit(route.sessionID)
       }
       await revealCurrent()
     }
@@ -269,11 +312,12 @@ export default Plugin.define({
       if (!canCloseCurrent()) return
       const id = viewing()!
       const route = ctx.ui.router.current()
-      // A route change may still be committing its visit when the shortcut is pressed.
-      if (state().selected !== id && route.type === "session") await visit(route.sessionID)
-      if (stopped || !enabled || viewing() !== id || state().selected !== id) return
+      // A route change may still be committing its visit when the shortcut is pressed; let it land first, so
+      // it cannot list the session again after the removal.
+      if (history.current !== id && route.type === "session") await visit(route.sessionID)
+      if (stopped || !enabled || viewing() !== id) return
       focusConversation = true
-      await act({ type: "session-remove", sessionID: id })
+      await change({ type: "session-remove", sessionID: id })
       setTimeout(returnFocus, 0)
     }
     /** The switchboard is meant to replace the native tabs; say once how to turn them off. */
@@ -309,9 +353,14 @@ export default Plugin.define({
           const route = ctx.ui.router.current()
           if (stopped || !enabled || route.type !== "session" || route.sessionID !== id) return
         }
-        // A subagent of the current selection is the same work context: record nothing.
-        if (root !== id && root === state().selected) return
-        await act({ type: "select", sessionID: root, observed })
+        // A subagent of the current session is the same work context: record nothing.
+        if (root !== id && root === history.current) return
+        show(root)
+        // A navigation OpenCode drove (Ctrl+O, its session list) can replace the session view and close the side
+        // panel, showing the native sidebar instead. While the switchboard is open, end every visit with it shown.
+        // Only this TUI's own visits do this; another TUI's changes never open anything here.
+        if (!(await act({ type: "visit", sessionID: root, observed }))) return
+        if (!stopped && enabled && ctx.ui.router.current().type === "session") showPanel()
       } catch (cause) {
         // The host navigates optimistically, before its create request commits.
         // Retry on session.created instead of showing an error for that local draft.
@@ -412,14 +461,18 @@ export default Plugin.define({
             focused={focused()}
             current={viewing()}
             colors={colors()}
-            act={(action) => void act(action)}
+            act={(action) => void change(action)}
             open={(session) => {
               focusConversation = true
-              // A remounting panel returns focus itself (see the panel slot); when nothing
-              // remounts, e.g. the session was already shown, return it here.
-              void act({ type: "select", sessionID: session.id, observed: session.idle }).then(() =>
-                setTimeout(returnFocus, 0),
-              )
+              // Already shown, e.g. from its subagent: no route change visits it, so visit it here.
+              if (routeRoot() === session.id) {
+                show(session.id)
+                // When nothing remounts, return focus here; a remounting panel returns it itself (see the panel slot).
+                void act({ type: "visit", sessionID: session.id, observed: session.idle }).then(() =>
+                  setTimeout(returnFocus, 0),
+                )
+                showPanel()
+              } else navigate(session.id) // The route effect visits it.
             }}
             close={close}
             help={() => void help()}
@@ -481,11 +534,14 @@ export default Plugin.define({
               return route.type === "session" ? route.sessionID : null
             },
             (id) => {
-              if (id === mirrored) {
-                mirrored = undefined
+              const quiet = id !== null && id === wentBack
+              wentBack = undefined
+              if (!enabled || !id) return
+              // Going back after a close moves focus only if the closer asked for it (see `closeCurrent`).
+              if (quiet) {
+                void visit(id)
                 return
               }
-              if (!enabled || !id) return
               // Opened elsewhere, e.g. the native session list: the panel remounts beside it and
               // the host focuses the panel, so hand focus to the conversation as a panel open does.
               focusConversation = true
@@ -503,8 +559,8 @@ export default Plugin.define({
             },
             (key) => {
               const location = locationProject(ctx.location)
-              if (key && mirroredHome) {
-                mirroredHome = false
+              if (key && navigatedHome) {
+                navigatedHome = false
                 return
               }
               if (!enabled || !key || !location) return
@@ -553,11 +609,16 @@ export default Plugin.define({
     const stopDeletes = ctx.data.on("session.deleted", (event) => {
       const id = event.data.sessionID
       // Use the exact deleted ID: deleting a subagent must not close its root's row.
-      if (
-        state().selected === id ||
-        Object.values(state().projects).some((project) => project.sessions.includes(id))
-      )
-        void act({ type: "session-remove", sessionID: id })
+      const current = history.current === id
+      if (!current && !Object.values(state().projects).some((project) => project.sessions.includes(id)))
+        return
+      void act({ type: "session-remove", sessionID: id }).then(() => {
+        // Every TUI that showed the deleted session leaves it, as native tabs do; the host may already have gone
+        // home. A TUI that has since moved to another session stays there.
+        if (!current || !enabled || history.current !== id) return
+        const here = routeRoot()
+        if (here === null || here === id) goBack(id)
+      })
     })
     const poll = () => {
       if (stopped) return

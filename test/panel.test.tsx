@@ -603,6 +603,7 @@ for (const width of [26, 46]) {
           error=""
           loading={false}
           focused={false}
+          current={null}
           act={noop}
           open={noop}
           close={noop}
@@ -749,6 +750,7 @@ test("folded project badges take session-row colors and keep a gap after a long 
         error=""
         loading={false}
         focused={false}
+        current={null}
         act={noop}
         open={noop}
         close={noop}
