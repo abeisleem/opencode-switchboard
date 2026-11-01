@@ -114,7 +114,7 @@ test("removed sessions stay removed after project reopening, but explicit naviga
   state = reduce(state, { type: "project-close", project: "p" })
   state = reduce(
     state,
-    { type: "select", sessionID: "b", observed: 10 },
+    { type: "visit", sessionID: "b", observed: 10 },
     { project: "p", name: "Project", sessions: ["b"] },
   )
   expect(workingSet([session], state)).toEqual([session])
@@ -124,10 +124,10 @@ test("closing the selected project chooses an open project instead of reopening 
   let state = openState()
   state = reduce(
     state,
-    { type: "select", sessionID: "c", observed: 0 },
+    { type: "visit", sessionID: "c", observed: 0 },
     { project: "other", name: "Other", sessions: ["c"] },
   )
-  state = reduce(state, { type: "select", sessionID: "b", observed: 0 })
+  state = reduce(state, { type: "visit", sessionID: "b", observed: 0 })
   state = reduce(state, { type: "project-close", project: "p" })
   expect(state.selected).toBe("c")
   state = reduce(state, { type: "project-close", project: "other" })
@@ -136,7 +136,7 @@ test("closing the selected project chooses an open project instead of reopening 
 })
 
 test("closing the current session uses an open member when recent history has no survivor", () => {
-  let state = reduce(openState(), { type: "select", sessionID: "b", observed: 0 })
+  let state = reduce(openState(), { type: "visit", sessionID: "b", observed: 0 })
   state = reduce(state, { type: "session-remove", sessionID: "b" })
   expect(state.selected).toBe("a")
   expect(state.recent[0]).toBe("a")
@@ -160,7 +160,7 @@ test("close fallback prefers recent open members over roster order and skips clo
 })
 
 test("closing a selected project falls back to an open member outside recent history", () => {
-  let state = reduce(openState(), { type: "select", sessionID: "b", observed: 0 })
+  let state = reduce(openState(), { type: "visit", sessionID: "b", observed: 0 })
   state.projects.other = { name: "Other", open: true, sessions: ["c"] }
   state = reduce(state, { type: "project-close", project: "p" })
   expect(state.selected).toBe("c")
@@ -168,7 +168,7 @@ test("closing a selected project falls back to an open member outside recent his
 })
 
 test("fallback to a member outside the bounded history keeps history bounded", () => {
-  let state = reduce(openState(), { type: "select", sessionID: "b", observed: 0 })
+  let state = reduce(openState(), { type: "visit", sessionID: "b", observed: 0 })
   state.recent = ["b", ...Array.from({ length: 49 }, (_, index) => `closed-${index}`)]
   state = reduce(state, { type: "session-remove", sessionID: "b" })
   expect(state.selected).toBe("a")
@@ -185,7 +185,7 @@ test("older saved state loads without turning on every project", () => {
 test("a session moved to another project is not retained as a member of both", () => {
   let state = reduce(
     openState(),
-    { type: "select", sessionID: "b", observed: 0 },
+    { type: "visit", sessionID: "b", observed: 0 },
     { project: "destination", name: "Destination", sessions: ["b"] },
   )
   expect(state.projects.p?.sessions).toEqual(["a"])
@@ -196,13 +196,13 @@ test("a session moved to another project is not retained as a member of both", (
 test("newly admitted sessions come first; revisiting a member never reorders it", () => {
   let state = reduce(
     openState(),
-    { type: "select", sessionID: "c", observed: 0 },
+    { type: "visit", sessionID: "c", observed: 0 },
     { project: "p", name: "Project", sessions: ["c"] },
   )
   expect(state.projects.p?.sessions).toEqual(["c", "a", "b"])
   state = reduce(
     state,
-    { type: "select", sessionID: "b", observed: 0 },
+    { type: "visit", sessionID: "b", observed: 0 },
     { project: "p", name: "Project", sessions: ["b"] },
   )
   expect(state.projects.p?.sessions).toEqual(["c", "a", "b"])
@@ -275,13 +275,13 @@ test("opening a session starts a new project with only that session and unfolds 
   state = reduce(state, { type: "collapse", key: parkedKey("p") })
   state = reduce(
     state,
-    { type: "select", sessionID: "b", observed: 0 },
+    { type: "visit", sessionID: "b", observed: 0 },
     { project: "p", name: "Project", sessions: ["b"] },
   )
   expect(state.collapsed).not.toContain(parkedKey("p"))
   state = reduce(
     state,
-    { type: "select", sessionID: "n", observed: 0 },
+    { type: "visit", sessionID: "n", observed: 0 },
     { project: "new", name: "New", sessions: ["n"] },
   )
   expect(state.projects.new?.sessions).toEqual(["n"])
@@ -299,7 +299,7 @@ test("switching between unparked sessions leaves the project's folded Parked fol
   for (const id of ["a", "b"])
     state = reduce(
       state,
-      { type: "select", sessionID: id, observed: 0 },
+      { type: "visit", sessionID: id, observed: 0 },
       { project: "p", name: "Project", sessions: [id] },
     )
   expect(state.collapsed).toContain(parkedKey("p"))
@@ -469,6 +469,14 @@ test("reading state is idempotent from every saved version", () => {
     reduce(openState(), { type: "place", sessionID: "b", placement: "parked" }),
   ]
   for (const value of saved) expect(readState(readState(value))).toEqual(readState(value))
+})
+
+test("the visit action still accepts select from older TUIs and hands the server a visit", () => {
+  const action = actionSchema.parse({ type: "select", sessionID: "b", observed: 3 })
+  expect(action).toEqual({ type: "visit", sessionID: "b", observed: 3 })
+  expect(actionSchema.parse({ type: "visit", sessionID: "b", observed: 3 })).toEqual(action)
+  expect(reduce(openState(), action).sessions.b).toEqual({ placement: "active", unread: false, seen: 3 })
+  expect(() => actionSchema.parse({ type: "select", sessionID: "b", observed: -1 })).toThrow()
 })
 
 test("the place action still accepts Later from older TUIs and stores it as parked", () => {

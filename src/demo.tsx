@@ -87,7 +87,7 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
           setState(
             reduce(
               state(),
-              { type: "select", sessionID: session.id, observed: session.idle },
+              { type: "visit", sessionID: session.id, observed: session.idle },
               { project: session.project, name: session.projectName, sessions: [session.id] },
             ),
           )

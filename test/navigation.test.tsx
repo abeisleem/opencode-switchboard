@@ -40,7 +40,7 @@ async function harness(
   options: {
     route?: Route
     members?: string[]
-    selectGate?: Promise<void>
+    visitGate?: Promise<void>
     live?: Partial<LiveSession>
     active?: () => Record<string, unknown>
     approvals?: () => string[]
@@ -108,7 +108,7 @@ async function harness(
         snapshot: rpc.snapshot,
         act: async (action: Action) => {
           actions.push(action)
-          if (action.type === "select") await options.selectGate
+          if (action.type === "visit") await options.visitGate
           return rpc.act(action)
         },
         events: {
@@ -265,7 +265,7 @@ test("startup adopts --session instead of the previously saved selection", async
 
 test("the current marker follows the displayed route while selection synchronization is pending", async () => {
   const gate = Promise.withResolvers<void>()
-  const run = await harness({ selectGate: gate.promise })
+  const run = await harness({ visitGate: gate.promise })
   const opening = run.open()
   try {
     await run.frame()
@@ -297,7 +297,7 @@ test("later selections from another client still synchronize the route and marke
   const run = await harness()
   try {
     await run.open()
-    await run.rpc.act({ type: "select", sessionID: "c", observed: 0 })
+    await run.rpc.act({ type: "visit", sessionID: "c", observed: 0 })
     await run.frame()
     expect(run.route()).toEqual({ type: "session", sessionID: "c" })
     expect(run.bold("Task c")).toBe(true)
@@ -312,7 +312,7 @@ test("reopening adopts this client's route after another client changed the save
   try {
     await run.open()
     await run.key("escape")
-    await run.rpc.act({ type: "select", sessionID: "c", observed: 0 })
+    await run.rpc.act({ type: "visit", sessionID: "c", observed: 0 })
     run.navigate({ type: "session", sessionID: "a" })
     await run.open()
     await run.frame()

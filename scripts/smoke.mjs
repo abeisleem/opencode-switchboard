@@ -143,7 +143,7 @@ if (navigation) {
     import { Switchboard } from "./src/rpc"
     const rpc = OpenCode.make({ baseUrl: ${JSON.stringify(remote)}, headers: ${JSON.stringify(headers)} }).rpc(Switchboard)
     for (const sessionID of ${JSON.stringify([session, previous])})
-      await rpc.act({ type: "select", sessionID, observed: 0 }, { location: { directory: ${JSON.stringify(directory)} } })
+      await rpc.act({ type: "visit", sessionID, observed: 0 }, { location: { directory: ${JSON.stringify(directory)} } })
   `,
     ],
     { cwd: repo, env, stdio: "pipe" },

@@ -32,8 +32,18 @@ export const stateSchema = z.object({
 export type State = z.infer<typeof stateSchema>
 export type Placement = z.infer<typeof placement>
 
+const visit = z.object({
+  type: z.literal("visit"),
+  sessionID: z.string(),
+  observed: z.number().nonnegative(),
+})
+
 export const actionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("select"), sessionID: z.string(), observed: z.number().nonnegative() }),
+  visit,
+  // "select", the visit's name before the current session became per TUI, from TUIs older than 0.1.5. OpenCode
+  // hands the handler the parsed value, so the server only ever sees "visit". Remove the alias in the release
+  // after 0.1.5.
+  visit.extend({ type: z.literal("select") }).transform((action) => ({ ...action, type: "visit" as const })),
   z.object({ type: z.literal("read"), sessionID: z.string(), observed: z.number().nonnegative() }),
   z.object({ type: z.literal("unread"), sessionID: z.string() }),
   z.object({
@@ -170,11 +180,11 @@ export function reduce(state: State, action: Action, admission?: Admission): Sta
   const item = (next.sessions[action.sessionID] ??= { placement: "active", unread: false })
   if (action.type === "place") item.placement = action.placement
   if (action.type === "unread") item.unread = true
-  if (action.type === "read" || action.type === "select") {
+  if (action.type === "read" || action.type === "visit") {
     item.unread = false
     item.seen = Math.max(item.seen ?? 0, action.observed)
   }
-  if (action.type === "select") {
+  if (action.type === "visit") {
     // Opening a session inside a folded Parked section reveals it.
     // The server admits every selection, so check placement: an unparked selection leaves Parked folded.
     if (admission && item.placement === "parked")

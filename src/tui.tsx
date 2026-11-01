@@ -311,7 +311,7 @@ export default Plugin.define({
         }
         // A subagent of the current selection is the same work context: record nothing.
         if (root !== id && root === state().selected) return
-        await act({ type: "select", sessionID: root, observed })
+        await act({ type: "visit", sessionID: root, observed })
       } catch (cause) {
         // The host navigates optimistically, before its create request commits.
         // Retry on session.created instead of showing an error for that local draft.
@@ -417,7 +417,7 @@ export default Plugin.define({
               focusConversation = true
               // A remounting panel returns focus itself (see the panel slot); when nothing
               // remounts, e.g. the session was already shown, return it here.
-              void act({ type: "select", sessionID: session.id, observed: session.idle }).then(() =>
+              void act({ type: "visit", sessionID: session.id, observed: session.idle }).then(() =>
                 setTimeout(returnFocus, 0),
               )
             }}

@@ -71,8 +71,8 @@ test("real private server loads only in its sandbox, shares actions, and persist
     expect(before.revision).toBe(0)
     const a = await client.session.create({ title: "Inbox integration A", location: { directory } })
     const b = await client.session.create({ title: "Inbox integration B", location: { directory } })
-    await rpc.act({ type: "select", sessionID: a.id, observed: 0 }, options)
-    await rpc.act({ type: "select", sessionID: b.id, observed: 0 }, options)
+    await rpc.act({ type: "visit", sessionID: a.id, observed: 0 }, options)
+    await rpc.act({ type: "visit", sessionID: b.id, observed: 0 }, options)
     await rpc.act({ type: "place", sessionID: b.id, placement: "parked" }, options)
     const marked = await rpc.act({ type: "unread", sessionID: b.id }, options)
     // Marking unread neither navigates nor changes placement.
@@ -99,7 +99,7 @@ test("real private server loads only in its sandbox, shares actions, and persist
     expect(restored.projects[project]?.sessions).toEqual([b.id])
     expect((await client.session.get({ sessionID: a.id })).time.archived).toBeUndefined()
     await rpc.act({ type: "project-close", project }, options)
-    const visited = await rpc.act({ type: "select", sessionID: c.id, observed: 0 }, options)
+    const visited = await rpc.act({ type: "visit", sessionID: c.id, observed: 0 }, options)
     expect(visited.projects[project]?.open).toBe(true)
     // Newly admitted work comes first; existing members keep their order.
     expect(visited.projects[project]?.sessions).toEqual([c.id, b.id])

@@ -16,13 +16,13 @@ export default Plugin.define({
         const session = await ctx.session.get({ sessionID: action.sessionID })
         if (session.parentID) throw new Error("Switchboard actions require a root session")
         if (
-          (action.type === "read" || action.type === "select") &&
+          (action.type === "read" || action.type === "visit") &&
           action.observed > (session.time.idle ?? 0)
         ) {
           throw new Error("Cannot acknowledge a result that has not completed")
         }
         // Visiting or organizing a session lists it in its project, opening the project if needed.
-        if (action.type === "select" || action.type === "place") {
+        if (action.type === "visit" || action.type === "place") {
           const project = session.projectID === "global" ? session.location.directory : session.projectID
           admission = {
             project,
