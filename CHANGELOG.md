@@ -2,8 +2,14 @@
 
 ## 0.1.5 (unreleased)
 
-Update the plugin on the server and on every TUI machine together. An older server rejects ←, →, and parking
-with `p`. A TUI older than this release hides parked sessions until it updates; nothing is lost.
+Update the plugin on the server and on every TUI machine together. An older server rejects ←, →, parking with
+`p`, and opening a session. A TUI older than this release hides parked sessions until it updates, may jump to
+the new-session screen once, and its `<leader>w` does nothing; nothing is lost.
+
+- Each TUI keeps its own current session. Opening a session in one TUI no longer switches every other TUI to
+  it; projects, sessions, parked sessions, unread marks, and folds are still shared. Closing the current
+  session's row returns to the session you viewed most recently in that TUI. When another TUI closes the row of
+  the session you are viewing, the row disappears but the conversation stays open.
 
 - Later is now Parked: each project lists its sessions, then a Parked fold (`▸ Parked · 3` when folded). Saved
   state migrates automatically and keeps your parked sessions and folds.
