@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5 (unreleased)
+
+- Fixed: switching between two Active sessions in a project no longer unfolds its folded Later. Opening a
+  session that is in Later still unfolds it.
+
 ## 0.1.4 (2026-10-31)
 
 - Session and project indicators update as soon as OpenCode reports a change, as in its native tabs. Spinners,

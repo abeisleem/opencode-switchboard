@@ -158,7 +158,9 @@ export function reduce(state: State, action: Action, admission?: Admission): Sta
   }
   if (action.type === "select") {
     // Opening a session inside a folded Later section reveals it.
-    if (admission) next.collapsed = next.collapsed.filter((key) => key !== laterKey(admission.project))
+    // The server admits every selection, so check placement: an Active selection leaves Later folded.
+    if (admission && item.placement === "later")
+      next.collapsed = next.collapsed.filter((key) => key !== laterKey(admission.project))
     next.selected = action.sessionID
     next.recent = [action.sessionID, ...next.recent.filter((id) => id !== action.sessionID)].slice(0, 50)
     next.navigation++
