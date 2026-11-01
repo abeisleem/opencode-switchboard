@@ -41,17 +41,41 @@ test("panel mirrors the native rail: left indicators, no header, footer help onl
   }
 })
 
-test("a and l move the highlighted session in and out of the Parked fold", async () => {
+test("p parks the highlighted session, and p again unparks it", async () => {
   const app = await testRender(() => <Demo />, { width: 60, height: 30 })
   try {
     await app.renderOnce()
     await app.mockInput.pressArrow("down")
-    app.mockInput.pressKey("l")
+    app.mockInput.pressKey("p")
     await app.renderOnce()
     expect(app.captureCharFrame()).toMatch(/▾ api-server[^]*▾ Parked[^\n]*\n *\n *\S +Check service health/)
-    app.mockInput.pressKey("a")
+    app.mockInput.pressKey("p")
     await app.renderOnce()
     expect(app.captureCharFrame()).toMatch(/▾ api-server[^\n]*\n *\n *\S +Check service health/)
+    // api-server has no Parked fold left; the one below belongs to dotfiles.
+    expect(app.captureCharFrame().split("▾ dotfiles")[0]).not.toContain("Parked")
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("a and l no longer move a session, and p on a heading changes nothing", async () => {
+  const app = await testRender(() => <Demo />, { width: 60, height: 30 })
+  try {
+    await app.renderOnce()
+    const start = app.captureCharFrame()
+    // The cursor starts on the api-server heading.
+    app.mockInput.pressKey("p")
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toBe(start)
+    await app.mockInput.pressArrow("down")
+    await app.renderOnce()
+    const highlighted = app.captureCharFrame()
+    for (const key of ["l", "a"]) {
+      app.mockInput.pressKey(key)
+      await app.renderOnce()
+      expect(app.captureCharFrame()).toBe(highlighted)
+    }
   } finally {
     await app.dispose()
   }
@@ -800,17 +824,20 @@ test("help lists one panel key per line in a muted column, with how to open the 
       expect(cell(app, lines[intro + offset]!.indexOf("ctrl"), intro + offset).fg).toBe("#737aa2")
       expect(cell(app, 3, intro + offset).fg).toBe("#c0caf5")
     }
-    const keys = ["↑/↓ j/k", "enter", "←/→", "u", "a / l", "x", "esc"]
+    const keys = ["↑/↓ j/k", "enter", "←/→", "u", "p", "x", "esc"]
     const first = intro + 4
     const rows = lines.slice(first, first + keys.length)
     expect(rows.map((line) => line.slice(5, 17).trim())).toEqual(keys)
+    expect(rows[keys.indexOf("p")]!.slice(17).trim()).toBe("Park or unpark")
     // Every action starts in the same column, in normal text after a muted key.
     for (const [index, line] of rows.entries()) {
       expect(line[17]).not.toBe(" ")
       expect(cell(app, 5, first + index).fg).toBe("#737aa2")
       expect(cell(app, 17, first + index).fg).toBe("#c0caf5")
     }
-    expect(lines.join("\n")).not.toMatch(/Ctrl|Enter|Esc|• unread|Closed sessions|never deletes|Refresh/)
+    expect(lines.join("\n")).not.toMatch(
+      /Ctrl|Enter|Esc|• unread|Closed sessions|never deletes|Refresh|Active|Later/,
+    )
     const ok = lines.findIndex((line) => line.includes(" ok "))
     expect(ok).toBeGreaterThan(intro + keys.length)
     await app.mockMouse.click(lines[ok]!.indexOf("ok"), ok)
