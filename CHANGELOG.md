@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: a right-click or middle-click on a row no longer opens the session or folds the heading. The same
+  goes for the close `✕`, the footer's error line, and `? help`: only a left-click acts on them.
+
 ## 0.2.0 (2026-11-01)
 
 Update the plugin on the server and on every TUI machine together. An older server rejects ←, →, parking with

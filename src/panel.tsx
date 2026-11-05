@@ -1,5 +1,12 @@
 import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, onMount, Show } from "solid-js"
-import { RGBA, TextAttributes, type BoxRenderable, type ScrollBoxRenderable } from "@opentui/core"
+import {
+  MouseButton,
+  RGBA,
+  TextAttributes,
+  type BoxRenderable,
+  type MouseEvent,
+  type ScrollBoxRenderable,
+} from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
 import {
   rowDetail,
@@ -156,6 +163,12 @@ function FadeText(props: {
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+/** A mouse-down handler that runs only for the left button; other buttons pass through untouched. */
+const left = (run: () => void) => (event: MouseEvent) => {
+  if (event.button === MouseButton.LEFT) run()
+}
+
 export type PanelProps = {
   state: State
   sessions: Session[]
@@ -428,6 +441,8 @@ export function InboxPanel(props: PanelProps) {
                     onMouseOver={() => setCloseHovered(true)}
                     onMouseOut={() => setCloseHovered(false)}
                     onMouseDown={(event) => {
+                      // Other buttons fall through to the row, which applies the same rule.
+                      if (event.button !== MouseButton.LEFT) return
                       event.stopPropagation()
                       if (lit()) run()
                     }}
@@ -454,6 +469,8 @@ export function InboxPanel(props: PanelProps) {
                     onMouseDown={(event) => {
                       // The host focuses the panel on mouse down; an unfocused click acts without stealing focus.
                       if (!props.focused) event.stopPropagation()
+                      // Only the left button opens a session or flips a fold.
+                      if (event.button !== MouseButton.LEFT) return
                       setRequested({ key })
                       enter()
                     }}
@@ -559,11 +576,11 @@ export function InboxPanel(props: PanelProps) {
           minWidth={0}
           wrapMode="none"
           fg={props.colors.error}
-          onMouseDown={props.diagnostics}
+          onMouseDown={left(props.diagnostics)}
         >
           {props.error ? `! ${props.error}` : ""}
         </text>
-        <text selectable={false} onMouseDown={props.help}>
+        <text selectable={false} onMouseDown={left(props.help)}>
           <span style={{ fg: props.colors.muted }}>?</span>
           <span style={{ fg: props.colors.text }}> help</span>
         </text>
