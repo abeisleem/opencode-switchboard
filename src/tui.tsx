@@ -15,6 +15,7 @@ import {
 } from "solid-js"
 import { Switchboard } from "./rpc"
 import { createClientState } from "./client"
+import { errorDetails, errorText } from "./error-text"
 import { initialState, parkedKey, projectOf, type Action, type Session, type State } from "./model"
 import { liveSession, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
@@ -150,7 +151,7 @@ export default Plugin.define({
     function report(cause: unknown) {
       logError("action", cause)
       if (stopped) return
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(errorText(cause))
     }
     function showPanel() {
       if (ctx.ui.panel.open(PANEL)) return
@@ -251,7 +252,7 @@ export default Plugin.define({
         setIssues(result.issues)
       } catch (cause) {
         logError("refresh", cause)
-        if (!stopped) setRefreshError(cause instanceof Error ? cause.message : String(cause))
+        if (!stopped) setRefreshError(errorText(cause))
       } finally {
         if (!stopped) {
           setLoading(false)
@@ -433,7 +434,7 @@ export default Plugin.define({
             .alert({
               title: "Switchboard refresh details",
               message:
-                [error(), refreshError(), ...issues()].filter(Boolean).join("\n\n") ||
+                errorDetails([error(), refreshError(), ...issues()]) ||
                 "All location attention reads are current.",
             })
             .then(closed),
@@ -447,7 +448,7 @@ export default Plugin.define({
             logError("render", cause)
             return (
               <text fg={ctx.theme.text.feedback.error.base} onMouseDown={reset}>
-                {`Switchboard error: ${cause instanceof Error ? cause.message : String(cause)}\n(logged to ${ERROR_LOG}; click to retry)`}
+                {`Switchboard error: ${errorText(cause)}\n(logged to ${ERROR_LOG}; click to retry)`}
               </text>
             )
           }}

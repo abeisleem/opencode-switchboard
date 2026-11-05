@@ -48,6 +48,8 @@ async function harness(
     shortcuts?: (id: string) => readonly string[]
     /** Sessions that belong to a second open project, "other", instead of "work". */
     other?: string[]
+    /** What the switchboard's RPC calls reject with, instead of reaching the server part. */
+    fail?: unknown
   } = {},
 ) {
   let saved = initialState()
@@ -68,7 +70,7 @@ async function harness(
   const noop = () => {}
   let activeReads = 0
   // What OpenCode would remember as the focus target when each dialog opened; see `modal` in src/tui.tsx.
-  const dialogs: { saved: unknown; close: () => void; render?: () => JSX.Element }[] = []
+  const dialogs: { saved: unknown; close: () => void; render?: () => JSX.Element; message?: string }[] = []
   let changed: (() => void) | undefined
   let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }
   await server.setup({
@@ -107,9 +109,10 @@ async function harness(
     location: { directory: "/work" },
     client: {
       rpc: () => ({
-        snapshot: rpc.snapshot,
+        snapshot: options.fail === undefined ? rpc.snapshot : () => Promise.reject(options.fail),
         act: async (action: Action) => {
           actions.push(action)
+          if (options.fail !== undefined) throw options.fail
           if (action.type === "visit") await options.visitGate
           return rpc.act(action)
         },
@@ -194,9 +197,9 @@ async function harness(
       dialog: {
         show: (render: () => JSX.Element, onClose?: () => void) =>
           dialogs.push({ saved: options.focus?.current ?? null, close: onClose ?? noop, render }),
-        alert: () =>
+        alert: (input: { message: string }) =>
           new Promise<void>((resolve) =>
-            dialogs.push({ saved: options.focus?.current ?? null, close: resolve }),
+            dialogs.push({ saved: options.focus?.current ?? null, close: resolve, message: input.message }),
           ),
         clear: noop,
       },
@@ -903,6 +906,43 @@ test("our dialogs leave OpenCode no focus to restore, then refocus the panel onc
       expect(focus.events, label).toEqual(["blur", "focus"])
       expect(focus.current, label).toBe(focus.node)
     }
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("failed RPC calls show a readable message in the footer, and once in the details dialog", async () => {
+  // OpenCode's RPC client rejects with a plain object, not an Error, for an undeclared handler failure.
+  const run = await harness({ fail: { type: "rpc.internal", message: "RPC call failed" } })
+  try {
+    await run.open()
+    await run.frame()
+    // Both the snapshot and the visit failed.
+    expect(run.actions.some((action) => action.type === "visit")).toBe(true)
+    const screen = run.app.captureCharFrame()
+    expect(screen).toContain("! rpc.internal: RPC call failed")
+    expect(screen).not.toContain("[object Object]")
+    await run.app.mockMouse.click(2, 19)
+    const message = run.dialogs.at(-1)?.message ?? ""
+    expect(message.split("rpc.internal: RPC call failed").length - 1).toBe(1)
+    expect(message).not.toContain("[object Object]")
+    run.dialogs.at(-1)!.close()
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("an unloaded server part is named in the footer, with a hint in the details dialog", async () => {
+  const run = await harness({
+    fail: { type: "rpc.unavailable", message: "RPC is unavailable: opencode-switchboard" },
+  })
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.app.captureCharFrame()).toContain("! Switchboard server part not loaded")
+    await run.app.mockMouse.click(2, 19)
+    expect(run.dialogs.at(-1)?.message).toContain('"failed to load plugin"')
+    run.dialogs.at(-1)!.close()
   } finally {
     await run.dispose()
   }
