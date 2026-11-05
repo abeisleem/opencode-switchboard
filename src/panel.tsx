@@ -21,6 +21,7 @@ import {
   type State,
 } from "./model"
 import { reconcileSelection, rowKey, type SelectionMemory } from "./selection"
+import { RowMenu, type MenuColors, type MenuControls, type MenuItem } from "./menu"
 
 /** Muted rows, matching hover/keyboard fills, and a bold current title on the bare surface. */
 export type Palette = {
@@ -34,6 +35,9 @@ export type Palette = {
   background: string | RGBA
   /** A non-current hovered or keyboard-selected row. Opaque, so titles can fade into it. */
   hover: string | RGBA
+  /** The row a right-click menu acts on, while the menu is open; distinct from hover. Opaque. */
+  target: string | RGBA
+  menu: MenuColors
   unread: string | RGBA
   attention: string | RGBA
   running: string | RGBA
@@ -201,6 +205,8 @@ export type PanelProps = {
     /** Moves the cursor to a row key (see rowKey). */
     reveal: (key: string) => void
   }) => void
+  /** Binds the right-click menu's keys while it is open (see RowMenu); without it the menu takes the mouse only. */
+  menuKeys?: (controls: MenuControls) => void
 }
 
 export function InboxPanel(props: PanelProps) {
@@ -245,6 +251,9 @@ export function InboxPanel(props: PanelProps) {
   })
   const cursor = () => selection().index
   const current = () => items()[cursor()]
+  const sameKeys = (a: string[], b: string[]) => a.length === b.length && a.every((key, i) => key === b[i])
+  const keys = createMemo(() => items().map(rowKey), [], { equals: sameKeys })
+  const entries = createMemo(() => new Map(items().map((row, index) => [rowKey(row), { row, index }])))
   function keepVisible() {
     if (!scroll || cursor() < 0 || selection().pending || !scroll.viewport.height) return
     // Use the known row heights: newly reconciled renderables can still have
@@ -323,26 +332,60 @@ export function InboxPanel(props: PanelProps) {
     if (row?.kind === "heading") props.act({ type: "collapse", key: row.key })
     if (row?.kind === "session") props.open(row.session)
   }
+  // Session actions shared by the keys (on the cursor row) and the right-click menu (on the clicked row). Each sends
+  // the target state, not a toggle, so a repeated press or a second client cannot flip it back.
+  function markRead(row: Row | undefined) {
+    if (row?.kind === "session")
+      props.act(
+        unread(row.session, props.state)
+          ? { type: "read", sessionID: row.session.id, observed: row.session.idle }
+          : { type: "unread", sessionID: row.session.id },
+      )
+  }
+  function park(row: Row | undefined) {
+    if (row?.kind !== "session") return
+    const placement: Placement = section(row.session, props.state) === "parked" ? "active" : "parked"
+    props.act({ type: "place", sessionID: row.session.id, placement })
+  }
+  /** The right-click menu: the row it acts on (by key) and where the pointer was. */
+  const [menu, setMenu] = createSignal<{ key: string; x: number; y: number }>()
+  /** Set when the menu closes, until the pointer moves; see `hover`. */
+  let pointerStill = false
+  function closeMenu() {
+    pointerStill = true
+    setMenu(undefined)
+  }
+  /** A session's menu items, labeled with what each will do. Headings have no menu. */
+  function menuItems(row: Extract<Row, { kind: "session" }>): MenuItem[] {
+    return [
+      {
+        label: unread(row.session, props.state) ? "Mark read" : "Mark unread",
+        hint: "u",
+        run: () => markRead(row),
+      },
+      {
+        label: section(row.session, props.state) === "parked" ? "Unpark" : "Park",
+        hint: "p",
+        run: () => park(row),
+      },
+    ]
+  }
+  // Built from the row as it is now, so a label and its action never disagree; a vanished row closes the menu.
+  const menuTarget = createMemo(() => {
+    const open = menu()
+    const row = open && entries().get(open.key)?.row
+    return open && row?.kind === "session" ? { ...open, items: menuItems(row) } : undefined
+  })
+  // Forget a closed menu's row, so it cannot reopen if that row comes back.
+  createEffect(() => {
+    if (menu() && !menuTarget()) closeMenu()
+  })
   props.keys?.({
     next: () => step(1),
     previous: () => step(-1),
     enter: () => enter(),
-    unread: () => {
-      const row = current()
-      if (row?.kind === "session")
-        props.act(
-          unread(row.session, props.state)
-            ? { type: "read", sessionID: row.session.id, observed: row.session.idle }
-            : { type: "unread", sessionID: row.session.id },
-        )
-    },
-    park: () => {
-      const row = current()
-      if (row?.kind !== "session") return
-      // Send the target placement, not a toggle, so a repeated press or a second client cannot flip it back.
-      const placement: Placement = section(row.session, props.state) === "parked" ? "active" : "parked"
-      props.act({ type: "place", sessionID: row.session.id, placement })
-    },
+    unread: () => markRead(current()),
+    park: () => park(current()),
     fold: (folded) => {
       const row = current()
       // Always sent, even when the heading already looks that way: the shown state can lag behind the server.
@@ -358,9 +401,6 @@ export function InboxPanel(props: PanelProps) {
       if (row?.kind === "session") props.act({ type: "session-remove", sessionID: row.session.id })
     },
   })
-  const sameKeys = (a: string[], b: string[]) => a.length === b.length && a.every((key, i) => key === b[i])
-  const keys = createMemo(() => items().map(rowKey), [], { equals: sameKeys })
-  const entries = createMemo(() => new Map(items().map((row, index) => [rowKey(row), { row, index }])))
   // One clock drives session spinners and activity summarized by collapsed headings.
   const animating = createMemo(() =>
     items().some((row) =>
@@ -415,17 +455,24 @@ export function InboxPanel(props: PanelProps) {
                 // Cursor and hover both brighten text and expose the close target.
                 const lit = createMemo(() => hovered() === key || (props.focused && cursor() === index()))
                 const current = () => key === `session:${props.current}`
+                // The row an open right-click menu acts on; it keeps its own fill until the menu closes.
+                const targeted = () => menuTarget()?.key === key
                 // Mouse movement takes over from keyboard navigation; the current row stays bold only.
                 const fill = () =>
-                  !current() && lit() && (keyboardHighlight() || hovered() === key)
-                    ? props.colors.hover
-                    : undefined
+                  targeted()
+                    ? props.colors.target
+                    : !current() && lit() && (keyboardHighlight() || hovered() === key)
+                      ? props.colors.hover
+                      : undefined
                 const background = () => fill() ?? props.colors.background
-                const hover = () => {
+                const hover = (event: MouseEvent) => {
                   setKeyboardHighlight(false)
                   setHovered(key)
+                  // After a menu closes, the row under a still pointer is hovered again; only a real move
+                  // follows it with the cursor, so closing the menu never moves the cursor.
+                  if (event.type === "move") pointerStill = false
                   // As in native lists, pointing at a row in the focused panel moves the cursor there.
-                  if (props.focused && selection().key !== key) setRequested({ key })
+                  if (props.focused && !pointerStill && selection().key !== key) setRequested({ key })
                 }
                 const [closeHovered, setCloseHovered] = createSignal(false)
                 /**
@@ -449,11 +496,12 @@ export function InboxPanel(props: PanelProps) {
                       if (lit()) run()
                     }}
                   >
-                    {lit() ? "✕" : ""}
+                    {/* Under an open menu the ✕ cannot be clicked, so its row does not show it. */}
+                    {lit() && !targeted() ? "✕" : ""}
                   </text>
                 )
                 const heading = () => entry().row as Extract<Row, { kind: "heading" }>
-                const headingColor = () => (lit() ? props.colors.text : props.colors.muted)
+                const headingColor = () => (lit() || targeted() ? props.colors.text : props.colors.muted)
                 const item = () => entry().row as Extract<Row, { kind: "session" }>
                 const session = () => item().session
                 const indent = () => (item().depth - 1) * 2
@@ -469,6 +517,15 @@ export function InboxPanel(props: PanelProps) {
                       if (hovered() === key) setHovered(undefined)
                     }}
                     onMouseDown={(event) => {
+                      // A right-click opens a session's menu; on a heading it does nothing. It never moves the
+                      // cursor or opens anything, and the host never sees it: focus stays where it is, and
+                      // OpenCode does not act on it.
+                      if (event.button === MouseButton.RIGHT) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        if (key.startsWith("session:")) setMenu({ key, x: event.x, y: event.y })
+                        return
+                      }
                       // The host focuses the panel on mouse down; an unfocused click acts without stealing focus.
                       if (!props.focused) event.stopPropagation()
                       // Only the left button opens a session or flips a fold.
@@ -547,7 +604,7 @@ export function InboxPanel(props: PanelProps) {
                           {/* As in the native rail: bright when hovered or current, bold only when current. */}
                           <FadeText
                             text={session().title}
-                            fg={lit() || current() ? props.colors.text : props.colors.muted}
+                            fg={lit() || targeted() || current() ? props.colors.text : props.colors.muted}
                             background={background()}
                             bold={current()}
                             scroll={lit()}
@@ -587,6 +644,18 @@ export function InboxPanel(props: PanelProps) {
           <span style={{ fg: props.colors.text }}> help</span>
         </text>
       </box>
+      <Show when={menuTarget()}>
+        {(target) => (
+          <RowMenu
+            x={target().x}
+            y={target().y}
+            items={target().items}
+            colors={props.colors.menu}
+            close={closeMenu}
+            keys={props.menuKeys}
+          />
+        )}
+      </Show>
     </box>
   )
 }

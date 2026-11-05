@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test"
 import type { Plugin } from "@opencode/plugin/tui"
 import { RGBA, TextAttributes } from "@opentui/core"
+import { MouseButtons } from "@opentui/core/testing"
 import { testRender } from "@opentui/solid"
-import { createSignal, type JSX } from "solid-js"
+import { createSignal, getOwner, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { actionSchema, initialState, type Action, type State } from "../src/model"
 import server from "../src/server"
@@ -102,6 +103,8 @@ async function harness(
   // The side panel the host shows beside a session, by name. Only a session view has one.
   const [panel, setPanel] = createSignal<string>()
   const layers: (() => Layer)[] = []
+  // OpenCode's input-mode stack, as `keymap.mode.push` leaves it.
+  const modes: string[] = []
   const actions: Action[] = []
   const dispatched: string[] = []
   let render!: () => JSX.Element
@@ -170,7 +173,11 @@ async function harness(
     },
     theme: {
       text: { base: color, muted: color, feedback: { error: { base: color } } },
-      background: { base: color, action: { primary: { hovered: color } } },
+      background: {
+        base: color,
+        raised: { base: color, high: color },
+        action: { primary: { hovered: color } },
+      },
       hue: { accent: { 200: color }, interactive: { 200: color } },
       surface: () => ({
         text: { base: color, muted: color, action: { primary: { focused: color } } },
@@ -214,8 +221,16 @@ async function harness(
     keymap: {
       dispatch: (command: string) => dispatched.push(command),
       shortcuts: options.shortcuts ?? (() => []),
+      // As in OpenCode, a layer ends with the component or reactive owner that registered it.
       layer: (factory: () => Layer) => {
         layers.push(factory)
+        if (getOwner()) onCleanup(() => void layers.splice(layers.indexOf(factory), 1))
+      },
+      mode: {
+        push: (mode: string) => {
+          modes.push(mode)
+          return () => void modes.splice(modes.lastIndexOf(mode), 1)
+        },
       },
     },
     renderer: {
@@ -253,6 +268,13 @@ async function harness(
       setPanel(undefined)
     },
     actions,
+    modes,
+    /** The commands of the newest layer registered for an input mode. */
+    modeCommands: (mode: string) =>
+      layers
+        .map((factory) => factory())
+        .filter((layer) => layer.mode === mode)
+        .at(-1)?.commands ?? [],
     dispatched,
     rpc,
     failures,
@@ -1097,6 +1119,52 @@ test("this TUI's own action reads no snapshot, while another TUI's change still 
     await run.rpc.act({ type: "fold", key: "work", folded: true })
     expect(await until(() => !run.app.captureCharFrame().includes("Task a"))).toBe(true)
     expect(run.snapshots()).toBe(snapshots + 1)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a row's right-click menu runs in OpenCode's menu mode and never moves focus, the route, or the cursor", async () => {
+  const focus = fakeFocus()
+  const run = await harness({ focus })
+  try {
+    await run.open()
+    await run.frame()
+    const route = run.route()
+    const focusEvents = [...focus.events]
+    const sent = run.actions.length
+    const rowOf = (text: string) =>
+      run.app
+        .captureCharFrame()
+        .split("\n")
+        .findIndex((line) => line.includes(text))
+    const menuOpen = () => /Mark (un)?read +u/.test(run.app.captureCharFrame())
+    await run.app.mockMouse.click(10, rowOf("Task a"), MouseButtons.RIGHT)
+    await run.frame()
+    expect(menuOpen()).toBe(true)
+    // The menu mode turns off the panel's own keys until the menu closes.
+    expect(run.modes).toEqual(["menu"])
+    const bind = (key: string) => run.modeCommands("menu").find((command) => command.bind === key)!
+    await bind("escape,ctrl+c").run()
+    await run.frame()
+    expect(menuOpen()).toBe(false)
+    expect(run.modes).toEqual([])
+    expect(run.actions.length).toBe(sent)
+    // An item's key runs it on the right-clicked row.
+    await run.app.mockMouse.click(10, rowOf("Task a"), MouseButtons.RIGHT)
+    await run.frame()
+    const label = run.app.captureCharFrame().includes("Mark read") ? "read" : "unread"
+    await bind("u").run()
+    await Bun.sleep(0)
+    await run.frame()
+    expect(run.actions.at(-1)).toMatchObject({ type: label, sessionID: "a" })
+    expect(run.modes).toEqual([])
+    expect(menuOpen()).toBe(false)
+    expect(run.route()).toEqual(route)
+    expect(focus.events).toEqual(focusEvents)
+    // The panel cursor did not follow the right-click: `u` from the panel acts on the row it was on.
+    await run.key("u")
+    expect(run.actions.at(-1)).toMatchObject({ sessionID: "b" })
   } finally {
     await run.dispose()
   }

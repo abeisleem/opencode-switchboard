@@ -533,6 +533,22 @@ export default Plugin.define({
                 ],
               }))
             }}
+            menuKeys={(menu) => {
+              // As OpenCode's own right-click menus: the `menu` mode turns off the panel's and the host's base keys
+              // until the menu closes. Its layer is not tied to focus, so it works without focusing the panel.
+              onCleanup(ctx.keymap.mode.push("menu"))
+              ctx.keymap.layer(() => ({
+                mode: "menu",
+                commands: [
+                  { bind: "escape,ctrl+c", run: menu.close },
+                  { bind: "return", run: menu.run },
+                  { bind: "down,j", run: () => menu.move(1) },
+                  { bind: "up,k", run: () => menu.move(-1) },
+                  // The keys each item shows also run it here.
+                  ...menu.items().map((item) => ({ bind: item.hint, run: item.run })),
+                ],
+              }))
+            }}
           />
         </ErrorBoundary>
       )

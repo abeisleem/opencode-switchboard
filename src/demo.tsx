@@ -1,6 +1,7 @@
-import { createSignal } from "solid-js"
+import { createSignal, onCleanup } from "solid-js"
 import { useKeyboard, useRenderer } from "@opentui/solid"
 import { InboxPanel, type Palette, type PanelProps } from "./panel"
+import type { MenuControls } from "./menu"
 import { initialState, reduce, type Session } from "./model"
 import { RECONNECTING } from "./error-text"
 
@@ -34,15 +35,16 @@ export const DEMO_PALETTE = {
   detail: "#545c7e",
   background: "#1f2335",
   hover: "#292e42",
+  target: "#313c5c",
+  menu: { background: "#1e2030", selected: "#2f334d", text: "#c0caf5", hint: "#737aa2" },
   unread: "#ff9e64",
   attention: "#ff9e64",
   running: "#7aa2f7",
   error: "#f7768e",
 } satisfies Palette
 
-export function Demo(props: { current?: string | null; focused?: boolean } = {}) {
-  const renderer = useRenderer()
-  const sessions = demoSessions()
+/** The demo sessions' projects, with one unread and two parked sessions. */
+export function demoState(sessions = demoSessions()) {
   const seed = initialState()
   for (const session of sessions) {
     const project = (seed.projects[session.project] ??= {
@@ -57,14 +59,34 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
     keys: { placement: "parked", unread: true },
     theme: { placement: "parked", unread: false },
   }
-  const [state, setState] = createSignal(seed)
+  return seed
+}
+
+export function Demo(props: { current?: string | null; focused?: boolean } = {}) {
+  const renderer = useRenderer()
+  const sessions = demoSessions()
+  const [state, setState] = createSignal(demoState(sessions))
   // The conversation this demo "shows", as a TUI's route would.
   const [shown, setShown] = createSignal<string | null>("inbox")
   // Footer states to compare: `r` toggles the reconnecting line, `e` an error (which replaces it).
   const [reconnecting, setReconnecting] = createSignal(false)
   const [failed, setFailed] = createSignal(false)
   let actions: Parameters<NonNullable<PanelProps["keys"]>>[0]
+  // A stand-in for OpenCode's `menu` keymap mode: while a right-click menu is open, keys go to it alone.
+  let menu: MenuControls | undefined
   useKeyboard((event) => {
+    if (menu) {
+      if (event.name === "escape" || (event.ctrl && event.name === "c")) menu.close()
+      else if (event.name === "return") menu.run()
+      else if (event.name === "down" || event.name === "j") menu.move(1)
+      else if (event.name === "up" || event.name === "k") menu.move(-1)
+      else
+        menu
+          .items()
+          .find((item) => item.hint === event.name)
+          ?.run()
+      return
+    }
     if (props.focused === false) return
     if (event.name === "down" || event.name === "j") actions.next()
     if (event.name === "up" || event.name === "k") actions.previous()
@@ -105,6 +127,12 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
         diagnostics={() => {}}
         keys={(value) => {
           actions = value
+        }}
+        menuKeys={(controls) => {
+          menu = controls
+          onCleanup(() => {
+            if (menu === controls) menu = undefined
+          })
         }}
       />
     </box>

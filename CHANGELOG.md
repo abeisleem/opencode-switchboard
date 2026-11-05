@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Right-click a session row for **Mark read**/**Mark unread** and **Park**/**Unpark**. Each item shows its key
+  (`u`, `p`). The menu acts on the session you right-clicked, which stays highlighted while the menu is open,
+  and moves neither the cursor nor focus. Esc, a click outside, or a right-click on the menu closes it.
 - When the connection to the server drops, the footer shows a muted `Reconnecting…` instead of the raw
   connection error, and the panel retries sooner (after 2, 4, and 8 seconds) until it is back. A change made
   while disconnected says `Not saved: no connection to the server`. Click the footer for the full error.
