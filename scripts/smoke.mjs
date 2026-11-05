@@ -22,6 +22,8 @@ const shortcut = process.argv.includes("key")
 // Opt-in native-delete lifecycle coverage: node scripts/smoke.mjs session delete
 const deletion = process.argv.includes("delete")
 const navigation = process.argv.includes("navigation")
+// Opt-in right-click menu coverage: node scripts/smoke.mjs session menu
+const menu = process.argv.includes("menu")
 const activation = process.argv.includes("activate") || deletion || navigation
 let clientPlugin = plugin
 if (bundled) {
@@ -45,7 +47,7 @@ if (bundled) {
 } else {
   await writeFile(`${directory}/.opencode/opencode.json`, JSON.stringify({ plugins: [plugin] }))
 }
-const wide = process.argv.includes("session") || deletion || navigation
+const wide = process.argv.includes("session") || deletion || navigation || menu
 const cols = wide ? 150 : 100
 const terminal = new xterm.Terminal({ cols, rows: 38, allowProposedApi: true })
 const env = {
@@ -126,8 +128,8 @@ if (wide) {
   const result = await create("Isolated panel smoke")
   session = result.id ?? result.data?.id
   if (!session) throw new Error("Private session creation did not return an ID")
-  if (activation) {
-    for (const title of navigation ? ["Another session"] : ["Activate target", "Another session"]) {
+  if (activation || menu) {
+    for (const title of navigation || menu ? ["Another session"] : ["Activate target", "Another session"]) {
       const created = await create(title)
       previous = created.id ?? created.data?.id
     }
@@ -225,7 +227,63 @@ try {
   await wait((text) =>
     session ? /▾ project[^]*Isolated panel smoke/.test(text) : text.includes("No open projects"),
   )
-  if (navigation) {
+  if (menu) {
+    // Ctrl+O adds Another session to the panel and shows it; Isolated panel smoke stays listed above it.
+    child.write("\x0f")
+    await wait((text) => text.includes("Search sessions and projects"))
+    child.write("Another session")
+    await wait((text) => text.includes("Another session"))
+    child.write("\r")
+    await wait(
+      (text) =>
+        !text.includes("Search sessions and projects") &&
+        current("Another session") &&
+        rowOf("Isolated panel smoke") >= 0,
+    )
+    // Put the panel cursor on Another session, then focus the conversation pane: the right-clicks below come
+    // from the composer, on a row the cursor is not on.
+    child.write("\x18i")
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    child.write("\x18\x1b[D")
+    await composerFocused("Another session")
+    if (terminal.modes.mouseTrackingMode === "none") throw new Error("Mouse reporting is not enabled")
+    const menuShown = (text) => /Mark (un)?read\s+u/.test(text) && /(Park|Unpark)\s+p/.test(text)
+    const rightClick = async () => {
+      const y = rowOf("Isolated panel smoke")
+      if (y < 0) throw new Error("Session row not visible for the menu test")
+      const x = screen().split("\n")[y].indexOf("Isolated panel smoke") + 3
+      child.write(`\x1b[<2;${x + 1};${y + 1}M\x1b[<2;${x + 1};${y + 1}m`)
+      await wait(menuShown)
+    }
+    /** The prompt line is empty: no menu key leaked into the composer. */
+    const promptEmpty = (text) => !/┃\s+[up]\s*$/m.test(text)
+    // `u` marks the right-clicked row unread; the conversation and the composer's focus stay put.
+    await rightClick()
+    child.write("u")
+    await wait((text) => !menuShown(text) && /•\s+Isolated panel smoke/.test(text) && promptEmpty(text))
+    if (!current("Another session")) throw new Error("The menu's Mark unread changed the open conversation")
+    await composerFocused("Another session")
+    // `p` parks it, again without moving the conversation or focus.
+    await rightClick()
+    child.write("p")
+    await wait(
+      (text) => !menuShown(text) && /▾ Parked[^]*Isolated panel smoke/.test(text) && promptEmpty(text),
+    )
+    if (!current("Another session")) throw new Error("The menu's Park changed the open conversation")
+    await composerFocused("Another session")
+    // Esc closes the menu without acting, opening, or moving focus.
+    await rightClick()
+    child.write("\x1b")
+    await wait((text) => !menuShown(text))
+    await composerFocused("Another session")
+    // The panel cursor never followed the right-clicks: focusing the panel without revealing anything and pressing
+    // Enter opens Another session again, not Isolated panel smoke.
+    child.write("\x18\x1b[C")
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    child.write("\r")
+    await composerFocused("Another session")
+    if (current("Isolated panel smoke")) throw new Error("The right-clicks moved the panel cursor")
+  } else if (navigation) {
     await wait(() => current("Isolated panel smoke") && !current("Another session"))
     child.write("\x18\x1b[D") // Focus the conversation pane before closing its row.
     await composerFocused("Isolated panel smoke")
@@ -313,7 +371,7 @@ try {
     frame,
   )
   console.log(
-    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""})`,
+    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""}${menu ? ", right-click menu from the composer" : ""})`,
   )
   passed = true
 } finally {
