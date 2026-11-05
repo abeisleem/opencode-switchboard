@@ -1,12 +1,13 @@
 import { expect, test } from "bun:test"
 import { rgbToHex, RGBA, TextAttributes } from "@opentui/core"
+import { MouseButtons } from "@opentui/core/testing"
 import { testRender } from "@opentui/solid"
 import type { Plugin } from "@opencode/plugin/tui"
 import { createSignal, type JSX } from "solid-js"
 import { DEMO_PALETTE as palette, Demo, demoSessions } from "../src/demo"
 import { HELP_COMMANDS, HelpDialog, helpShortcuts, type HelpShortcuts } from "../src/help"
 import { InboxPanel, tint } from "../src/panel"
-import { initialState, parkedKey } from "../src/model"
+import { initialState, parkedKey, type Action } from "../src/model"
 import plugin from "../src/tui"
 
 test("panel mirrors the native rail: left indicators, no header, footer help only", async () => {
@@ -340,6 +341,83 @@ test("the close ✕ has a gap before it and highlighted target padding after it"
     await app.dispose()
   }
 })
+
+for (const focused of [true, false]) {
+  test(`only the left button opens a row, folds a heading, closes, or opens help (focused: ${focused})`, async () => {
+    const sessions = demoSessions()
+    const state = initialState()
+    for (const session of sessions) {
+      const project = (state.projects[session.project] ??= {
+        name: session.projectName,
+        open: true,
+        sessions: [],
+      })
+      project.sessions.push(session.id)
+    }
+    const acted: Action[] = []
+    const opened: string[] = []
+    let helped = 0
+    let diagnosed = 0
+    const app = await testRender(
+      () => (
+        <InboxPanel
+          state={state}
+          sessions={sessions}
+          colors={palette}
+          error="sync failed"
+          loading={false}
+          focused={focused}
+          current={null}
+          act={(action) => acted.push(action)}
+          open={(session) => opened.push(session.id)}
+          close={() => {}}
+          help={() => helped++}
+          diagnostics={() => diagnosed++}
+        />
+      ),
+      { width: 46, height: 30 },
+    )
+    try {
+      await app.renderOnce()
+      await app.renderOnce()
+      const row = lineOf(app, "Check service health")
+      const heading = lineOf(app, "api-server")
+      const footer = lineOf(app, "? help")
+      const help = app.captureCharFrame().split("\n")[footer]!.indexOf("?")
+      for (const button of [MouseButtons.RIGHT, MouseButtons.MIDDLE]) {
+        await app.mockMouse.click(8, row, button)
+        await app.mockMouse.click(8, heading, button)
+        // The ✕ of the hovered heading, then the footer's error line and help.
+        await app.mockMouse.moveTo(8, heading)
+        await app.renderOnce()
+        await app.mockMouse.click(44, heading, button)
+        await app.mockMouse.click(2, footer, button)
+        await app.mockMouse.click(help, footer, button)
+        await app.renderOnce()
+      }
+      expect(opened).toEqual([])
+      expect(acted).toEqual([])
+      expect(helped).toBe(0)
+      expect(diagnosed).toBe(0)
+      expect(app.captureCharFrame()).toContain("▾ api-server")
+      // The left button still acts on each target.
+      await app.mockMouse.click(8, row)
+      await app.mockMouse.click(8, heading)
+      await app.mockMouse.click(44, heading)
+      await app.mockMouse.click(2, footer)
+      await app.mockMouse.click(help, footer)
+      expect(opened).toEqual(["health"])
+      expect(acted).toEqual([
+        { type: "collapse", key: "api-server" },
+        { type: "project-close", project: "api-server" },
+      ])
+      expect(helped).toBe(1)
+      expect(diagnosed).toBe(1)
+    } finally {
+      await app.dispose()
+    }
+  })
+}
 
 for (const width of [26, 46]) {
   test(`collapsed project badges and close padding stay aligned at ${width} columns`, async () => {
