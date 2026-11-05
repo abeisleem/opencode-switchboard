@@ -51,6 +51,8 @@ async function harness(
     other?: string[]
     /** What the switchboard's RPC calls reject with, instead of reaching the server part. */
     fail?: unknown
+    /** Render the side panel beside the session, with host focus, instead of the fullscreen route. */
+    sidePanel?: boolean
   } = {},
 ) {
   // What the switchboard's RPC calls reject with; a test can change it while the TUI runs.
@@ -109,6 +111,36 @@ async function harness(
   const dispatched: string[] = []
   let render!: () => JSX.Element
   let renderApp!: () => JSX.Element
+  let renderPanel: ((input: object) => JSX.Element) | undefined
+  // Whether the host's side panel has focus: its `focus` gives it focus; focusing anything else takes it away.
+  const [panelFocused, setPanelFocused] = createSignal(false)
+  const panelNode = {
+    isDestroyed: false,
+    focus: () => panelInput.focus(),
+    blur: () => setPanelFocused(false),
+  }
+  if (options.focus) {
+    const focusNode = (options.focus as FakeFocus & { node: { focus: () => void } }).node
+    const original = focusNode.focus
+    focusNode.focus = () => {
+      original()
+      setPanelFocused(false)
+    }
+  }
+  const panelInput = {
+    get name() {
+      return panel()
+    },
+    get focused() {
+      return panelFocused()
+    },
+    presentation: "panel" as const,
+    focus: () => {
+      options.focus?.events.push("panel")
+      if (options.focus) options.focus.current = panelNode
+      setPanelFocused(true)
+    },
+  }
   let cleanup!: ReturnType<typeof plugin.setup>
   const color = RGBA.fromHex("#c0caf5")
   const context = {
@@ -179,9 +211,20 @@ async function harness(
         action: { primary: { hovered: color } },
       },
       hue: { accent: { 200: color }, interactive: { 200: color } },
+      // The dialog surface: the help dialog's tokens, and the side panel's palette.
       surface: () => ({
-        text: { base: color, muted: color, action: { primary: { focused: color } } },
-        background: { action: { primary: { focused: color } } },
+        text: {
+          base: color,
+          muted: color,
+          action: { primary: { focused: color } },
+          feedback: { error: { base: color } },
+        },
+        background: {
+          base: color,
+          raised: { base: color, high: color },
+          action: { primary: { focused: color, hovered: color } },
+        },
+        hue: { accent: { 200: color }, interactive: { 200: color } },
       }),
     },
     ui: {
@@ -193,8 +236,9 @@ async function harness(
           return noop
         },
       },
-      slot: (slot: { append: string; render: () => JSX.Element }) => {
-        if (slot.append === "app") renderApp = slot.render
+      slot: (slot: { append: string; render: (input: object) => JSX.Element }) => {
+        if (slot.append === "app") renderApp = () => slot.render({})
+        if (slot.append === "session.panel") renderPanel = slot.render
         return noop
       },
       panel: {
@@ -219,7 +263,12 @@ async function harness(
       },
     },
     keymap: {
-      dispatch: (command: string) => dispatched.push(command),
+      dispatch: (command: string) => {
+        dispatched.push(command)
+        // As the host's `pane.focus.left`: the conversation pane, here the fake composer, takes focus.
+        if (options.sidePanel && command === "pane.focus.left")
+          (options.focus as (FakeFocus & { node: { focus: () => void } }) | undefined)?.node.focus()
+      },
       shortcuts: options.shortcuts ?? (() => []),
       // As in OpenCode, a layer ends with the component or reactive owner that registered it.
       layer: (factory: () => Layer) => {
@@ -243,7 +292,7 @@ async function harness(
     () => {
       cleanup = plugin.setup(context)
       renderApp()
-      return render()
+      return options.sidePanel ? renderPanel!(panelInput) : render()
     },
     { width: 60, height: 20 },
   )
@@ -255,6 +304,9 @@ async function harness(
     navigate,
     /** The side panel the host shows, if any. */
     panel,
+    panelFocused,
+    /** Focuses the side panel, as a click on it or the host's pane keys do. */
+    focusPanel: () => panelInput.focus(),
     /**
      * Opens a session the way OpenCode's Ctrl+O menu or session list does: the new session view replaces the
      * old one and its side panel, showing the native sidebar until a plugin opens its panel again.
@@ -1124,7 +1176,7 @@ test("this TUI's own action reads no snapshot, while another TUI's change still 
   }
 })
 
-test("a row's right-click menu runs in OpenCode's menu mode and never moves focus, the route, or the cursor", async () => {
+test("a fullscreen switchboard's right-click menu runs in OpenCode's menu mode and never moves focus, the route, or the cursor", async () => {
   const focus = fakeFocus()
   const run = await harness({ focus })
   try {
@@ -1165,6 +1217,94 @@ test("a row's right-click menu runs in OpenCode's menu mode and never moves focu
     // The panel cursor did not follow the right-click: `u` from the panel acts on the row it was on.
     await run.key("u")
     expect(run.actions.at(-1)).toMatchObject({ sessionID: "b" })
+  } finally {
+    await run.dispose()
+  }
+})
+
+/** Right-clicks a row of the harness's panel and waits for the menu. */
+async function openMenu(run: Awaited<ReturnType<typeof harness>>, title: string) {
+  const y = run.app
+    .captureCharFrame()
+    .split("\n")
+    .findIndex((line) => line.includes(title))
+  await run.app.mockMouse.click(10, y, MouseButtons.RIGHT)
+  await run.frame()
+  expect(run.app.captureCharFrame()).toMatch(/Mark (un)?read +u/)
+}
+
+const menuCommand = (run: Awaited<ReturnType<typeof harness>>, bind: string) =>
+  run.modeCommands("menu").find((command) => command.bind === bind)!
+
+test("from the composer, a right-click menu focuses the side panel while open and returns focus on close", async () => {
+  const focus = fakeFocus()
+  const run = await harness({ focus, sidePanel: true })
+  try {
+    await run.open()
+    await run.frame()
+    // The composer has focus; the panel does not.
+    expect(run.panel()).toBe("switchboard")
+    expect(run.panelFocused()).toBe(false)
+    const route = run.route()
+    const sent = run.actions.length
+    const closed = async (how: () => unknown) => {
+      focus.events.length = 0
+      await how()
+      await Bun.sleep(0)
+      await run.frame()
+      expect(run.app.captureCharFrame()).not.toMatch(/Mark (un)?read +u/)
+      expect(run.modes).toEqual([])
+      // Focus is back in the composer, through the host's pane command.
+      expect(run.dispatched.at(-1)).toBe("pane.focus.left")
+      expect(run.panelFocused()).toBe(false)
+      expect(focus.current).toBe(focus.node)
+      expect(focus.events).toEqual(["focus"])
+    }
+    // The panel takes focus for the menu, so OpenCode enables its keys there and the composer gets none.
+    focus.events.length = 0
+    await openMenu(run, "Task a")
+    expect(run.panelFocused()).toBe(true)
+    expect(focus.events).toEqual(["panel"])
+    expect(run.modes).toEqual(["menu"])
+    // Esc closes it without acting.
+    await closed(() => menuCommand(run, "escape,ctrl+c").run())
+    expect(run.actions.length).toBe(sent)
+    // An outside click closes it without acting.
+    await openMenu(run, "Task a")
+    await closed(() => run.app.mockMouse.click(1, 0))
+    expect(run.actions.length).toBe(sent)
+    // An item's key acts on the right-clicked row, then focus returns.
+    await openMenu(run, "Task a")
+    const label = run.app.captureCharFrame().includes("Mark read") ? "read" : "unread"
+    await closed(() => menuCommand(run, "u").run())
+    expect(run.actions.at(-1)).toMatchObject({ type: label, sessionID: "a" })
+    expect(run.route()).toEqual(route)
+    // The panel cursor never moved: its `u` acts on the session it was on.
+    await run.key("u")
+    expect(run.actions.at(-1)).toMatchObject({ sessionID: "b" })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a right-click menu in an already focused side panel leaves focus in the panel", async () => {
+  const focus = fakeFocus()
+  const run = await harness({ focus, sidePanel: true })
+  try {
+    await run.open()
+    await run.frame()
+    run.focusPanel()
+    await run.frame()
+    focus.events.length = 0
+    await openMenu(run, "Task a")
+    expect(run.modes).toEqual(["menu"])
+    const dispatched = run.dispatched.length
+    await menuCommand(run, "escape,ctrl+c").run()
+    await run.frame()
+    expect(run.modes).toEqual([])
+    expect(run.panelFocused()).toBe(true)
+    expect(focus.events).toEqual([])
+    expect(run.dispatched.length).toBe(dispatched)
   } finally {
     await run.dispose()
   }
