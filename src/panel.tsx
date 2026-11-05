@@ -174,6 +174,8 @@ export type PanelProps = {
   sessions: Session[]
   colors: Palette
   error: string
+  /** A muted footer line for a condition that fixes itself, such as reconnecting; an error replaces it. */
+  notice?: string
   loading: boolean
   /** Whether the panel has keyboard focus; clicks while unfocused leave focus where it is. */
   focused: boolean
@@ -575,10 +577,10 @@ export function InboxPanel(props: PanelProps) {
           flexGrow={1}
           minWidth={0}
           wrapMode="none"
-          fg={props.colors.error}
+          fg={props.error ? props.colors.error : props.colors.muted}
           onMouseDown={left(props.diagnostics)}
         >
-          {props.error ? `! ${props.error}` : ""}
+          {props.error ? `! ${props.error}` : (props.notice ?? "")}
         </text>
         <text selectable={false} onMouseDown={left(props.help)}>
           <span style={{ fg: props.colors.muted }}>?</span>

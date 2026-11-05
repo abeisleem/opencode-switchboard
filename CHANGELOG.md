@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- When the connection to the server drops, the footer shows a muted `Reconnecting…` instead of the raw
+  connection error, and the panel retries sooner (after 2, 4, and 8 seconds) until it is back. A change made
+  while disconnected says `Not saved: no connection to the server`. Click the footer for the full error.
 - Fixed: a right-click or middle-click on a row no longer opens the session or folds the heading. The same
   goes for the close `✕`, the footer's error line, and `? help`: only a left-click acts on them.
 - Fixed: errors in the panel footer and the details dialog showed `[object Object]`. They now show a readable

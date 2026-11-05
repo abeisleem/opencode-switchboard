@@ -15,7 +15,7 @@ import {
 } from "solid-js"
 import { Switchboard } from "./rpc"
 import { createClientState } from "./client"
-import { errorDetails, errorText } from "./error-text"
+import { actionErrorText, errorDetails, errorText, isTransportError, RECONNECTING } from "./error-text"
 import { initialState, parkedKey, projectOf, type Action, type Session, type State } from "./model"
 import { liveSession, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
@@ -39,6 +39,10 @@ function logError(where: string, cause: unknown) {
 }
 
 const PANEL = "switchboard"
+/** How often the open switchboard refreshes its catalog. */
+const POLL = 15_000
+/** While the connection is down, the first retry waits this long, then doubles up to `POLL`. */
+const RETRY = 2_000
 
 type Controls = Parameters<NonNullable<PanelProps["keys"]>>[0]
 type LocationProject = { directory: string; project: { id: string; canonical: string } }
@@ -71,6 +75,8 @@ export default Plugin.define({
     const [sessions, setSessions] = createSignal<Session[]>([])
     const [error, setError] = createSignal("")
     const [refreshError, setRefreshError] = createSignal("")
+    // The last refresh failed for lack of a connection: the footer says it is reconnecting, not the raw error.
+    const [reconnecting, setReconnecting] = createSignal(false)
     const [issues, setIssues] = createSignal<string[]>([])
     const attention = new Map<string, Attention>()
     // Keep an opaque mutable cursor across both panel remounts and plugin reloads.
@@ -106,6 +112,8 @@ export default Plugin.define({
     // visits it, but leaves keyboard focus where it is: in the panel, so `x` can close the next row.
     let wentBack: string | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
+    // Refreshes failed in a row for lack of a connection; sets how soon the next one retries.
+    let retries = 0
     let membership = ""
     let refreshAgain = false
     let lastCatalog = ""
@@ -151,7 +159,18 @@ export default Plugin.define({
     function report(cause: unknown) {
       logError("action", cause)
       if (stopped) return
-      setError(errorText(cause))
+      setError(actionErrorText(cause))
+    }
+    /** A refresh, or a snapshot read for one, failed; while disconnected, retry sooner than the poll. */
+    function refreshFailed(where: string, cause: unknown) {
+      logError(where, cause)
+      if (stopped) return
+      setRefreshError(errorText(cause))
+      const lost = isTransportError(cause)
+      setReconnecting(lost)
+      if (!lost) return
+      clearTimeout(timer)
+      timer = setTimeout(poll, Math.min(RETRY * 2 ** retries++, POLL))
     }
     function showPanel() {
       if (ctx.ui.panel.open(PANEL)) return
@@ -249,10 +268,11 @@ export default Plugin.define({
           setSessions(result.sessions)
         }
         setRefreshError(result.warning)
+        setReconnecting(false)
+        retries = 0
         setIssues(result.issues)
       } catch (cause) {
-        logError("refresh", cause)
-        if (!stopped) setRefreshError(errorText(cause))
+        refreshFailed("refresh", cause)
       } finally {
         if (!stopped) {
           setLoading(false)
@@ -457,7 +477,8 @@ export default Plugin.define({
             selectionMemory={selectionMemory}
             state={state()}
             sessions={live.shown()}
-            error={error() || refreshError()}
+            error={error() || (reconnecting() ? "" : refreshError())}
+            notice={reconnecting() ? RECONNECTING : ""}
             loading={loading()}
             focused={focused()}
             current={viewing()}
@@ -597,7 +618,11 @@ export default Plugin.define({
       bindings: ["opencode-switchboard.open", "opencode-switchboard.close-current"],
     }))
     const stopEvents = rpc.events.on("changed", () => {
-      if (enabled) void rpc.snapshot({}, options).then(accept).catch(report)
+      if (enabled)
+        void rpc
+          .snapshot({}, options)
+          .then(accept)
+          .catch((cause) => (isTransportError(cause) ? refreshFailed("changed", cause) : report(cause)))
     })
     const stopRenames = ctx.data.on("session.renamed", () => {
       if (enabled) void refresh()
@@ -621,10 +646,10 @@ export default Plugin.define({
         if (here === null || here === id) goBack(id)
       })
     })
-    const poll = () => {
+    function poll() {
       if (stopped) return
       if (enabled) void refresh()
-      timer = setTimeout(poll, 15_000)
+      timer = setTimeout(poll, POLL)
     }
     poll()
     // Only the explicit workstation launcher opts into opening on activation/reload.

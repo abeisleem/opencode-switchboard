@@ -52,6 +52,8 @@ async function harness(
     fail?: unknown
   } = {},
 ) {
+  // What the switchboard's RPC calls reject with; a test can change it while the TUI runs.
+  const failures: { snapshot?: unknown; act?: unknown } = { snapshot: options.fail, act: options.fail }
   let saved = initialState()
   saved.revision = 1
   saved.projects.work = { name: "Work", open: true, sessions: options.members ?? ["a", "b"] }
@@ -109,10 +111,11 @@ async function harness(
     location: { directory: "/work" },
     client: {
       rpc: () => ({
-        snapshot: options.fail === undefined ? rpc.snapshot : () => Promise.reject(options.fail),
+        snapshot: () =>
+          failures.snapshot === undefined ? rpc.snapshot() : Promise.reject(failures.snapshot),
         act: async (action: Action) => {
           actions.push(action)
-          if (options.fail !== undefined) throw options.fail
+          if (failures.act !== undefined) throw failures.act
           if (action.type === "visit") await options.visitGate
           return rpc.act(action)
         },
@@ -248,6 +251,7 @@ async function harness(
     actions,
     dispatched,
     rpc,
+    failures,
     saved: () => saved,
     sessions,
     activeReads: () => activeReads,
@@ -943,6 +947,82 @@ test("an unloaded server part is named in the footer, with a hint in the details
     await run.app.mockMouse.click(2, 19)
     expect(run.dialogs.at(-1)?.message).toContain('"failed to load plugin"')
     run.dialogs.at(-1)!.close()
+  } finally {
+    await run.dispose()
+  }
+})
+
+/** The host client's rejection when the connection drops, shaped as OpenCode 2.2.5's `ClientError`. */
+function transportError() {
+  const cause = new TypeError("ECONNRESET: The socket connection was closed unexpectedly")
+  return Object.assign(new Error(`Transport: ${cause.message}`, { cause }), {
+    name: "ClientError",
+    reason: "Transport",
+  })
+}
+
+/** Records the delays the switchboard schedules its catalog poll with, without letting the poll run. */
+function capturePolls() {
+  const original = globalThis.setTimeout
+  const delays: number[] = []
+  globalThis.setTimeout = ((handler: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (handler.name !== "poll") return original(handler, delay, ...args)
+    delays.push(delay ?? 0)
+    return original(() => {}, delay)
+  }) as typeof setTimeout
+  return { delays, restore: () => (globalThis.setTimeout = original) }
+}
+
+test("a lost connection shows a muted Reconnecting… line, retries sooner, and clears on the next refresh", async () => {
+  const polls = capturePolls()
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    const footer = () => run.app.captureCharFrame().split("\n").at(-2)!
+    expect(footer()).not.toContain("!")
+    expect(polls.delays).toEqual([15_000])
+
+    run.failures.snapshot = transportError()
+    await run.open()
+    await run.frame()
+    expect(footer()).toContain("Reconnecting…")
+    expect(footer()).not.toContain("!")
+    expect(footer()).not.toContain("ECONNRESET")
+    // The details dialog keeps the client's full message.
+    await run.app.mockMouse.click(2, 19)
+    expect(run.dialogs.at(-1)?.message).toContain("Transport: ECONNRESET: The socket connection was closed")
+    run.dialogs.at(-1)!.close()
+    // While refreshes keep failing, the next one comes after 2, 4, and 8 seconds, then at the usual 15.
+    for (let i = 0; i < 4; i++) await run.open()
+    expect(polls.delays.slice(1)).toEqual([2_000, 4_000, 8_000, 15_000, 15_000])
+
+    run.failures.snapshot = undefined
+    await run.open()
+    await run.frame()
+    expect(footer()).not.toContain("Reconnecting")
+    expect(footer()).not.toContain("!")
+    // A later drop starts the backoff over.
+    run.failures.snapshot = transportError()
+    await run.open()
+    expect(polls.delays.at(-1)).toBe(2_000)
+  } finally {
+    polls.restore()
+    await run.dispose()
+  }
+})
+
+test("a change made without a connection says it was not saved", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    run.failures.act = transportError()
+    await run.key("u")
+    await run.frame()
+    const screen = run.app.captureCharFrame()
+    expect(screen).toContain("! Not saved: no connection to the server")
+    expect(screen).not.toContain("Reconnecting")
   } finally {
     await run.dispose()
   }

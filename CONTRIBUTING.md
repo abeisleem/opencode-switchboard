@@ -32,7 +32,8 @@ Run `bun run dev` in the checkout. It starts `opencode` with the plugin loaded f
 - The server part reloads on edit. A running TUI does not re-import the panel when its source changes, so
   restart the TUI to test panel changes.
 
-`bun run demo` renders the panel with fixture data. It needs no server.
+`bun run demo` renders the panel with fixture data. It needs no server. In the demo, `r` toggles the footer's
+`Reconnecting…` line and `e` toggles an error line; `q` quits.
 
 ## Checks
 

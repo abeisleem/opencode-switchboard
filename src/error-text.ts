@@ -19,6 +19,23 @@ function field(cause: unknown, key: string): unknown {
     : undefined
 }
 
+/**
+ * Whether a request failed because this TUI could not reach the OpenCode server: the connection was reset,
+ * refused, or timed out. The host's client rejects with a `ClientError` whose `reason` is "Transport"; its message
+ * and `cause` carry the code (ECONNRESET, ECONNREFUSED, ETIMEDOUT).
+ */
+export function isTransportError(cause: unknown) {
+  return field(cause, "reason") === "Transport"
+}
+
+/** The muted footer line while refreshes fail for lack of a connection, a condition that fixes itself. */
+export const RECONNECTING = "Reconnecting…"
+
+/** Text for a failed change: as `errorText`, but a lost connection says the change did not happen. */
+export function actionErrorText(cause: unknown) {
+  return isTransportError(cause) ? "Not saved: no connection to the server" : errorText(cause)
+}
+
 /** JSON for an object, writing repeated references and bigints out instead of throwing. */
 function json(value: object) {
   const seen = new WeakSet<object>()

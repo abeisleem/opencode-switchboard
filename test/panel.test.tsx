@@ -973,3 +973,43 @@ test("help reads each command's first shortcut from the keymap, with no fallback
   expect(shortcuts).toEqual({ open: "ctrl+a i", right: "ctrl+a →", close: "ctrl+a w" })
   expect(helpShortcuts(() => [])).toEqual({})
 })
+
+test("the footer shows a notice muted and without !, and an error in the error color instead", async () => {
+  const [error, setError] = createSignal("")
+  const app = await testRender(
+    () => (
+      <InboxPanel
+        state={initialState()}
+        sessions={[]}
+        colors={palette}
+        error={error()}
+        notice="Reconnecting…"
+        loading={false}
+        focused
+        current={null}
+        act={() => {}}
+        open={() => {}}
+        close={() => {}}
+        help={() => {}}
+        diagnostics={() => {}}
+      />
+    ),
+    { width: 60, height: 10 },
+  )
+  try {
+    await app.renderOnce()
+    const footer = lineOf(app, "? help")
+    const line = () => app.captureCharFrame().split("\n")[footer]!
+    expect(line()).toContain(" Reconnecting…")
+    expect(line()).not.toContain("!")
+    expect(cell(app, 1, footer)).toMatchObject({ char: "R", fg: palette.muted, bold: false })
+    // An error, such as a change that was not saved, replaces the notice.
+    setError("Not saved: no connection to the server")
+    await app.renderOnce()
+    expect(line()).toContain("! Not saved: no connection to the server")
+    expect(line()).not.toContain("Reconnecting")
+    expect(cell(app, 1, footer)).toMatchObject({ char: "!", fg: palette.error })
+  } finally {
+    await app.dispose()
+  }
+})

@@ -2,6 +2,7 @@ import { createSignal } from "solid-js"
 import { useKeyboard, useRenderer } from "@opentui/solid"
 import { InboxPanel, type Palette, type PanelProps } from "./panel"
 import { initialState, reduce, type Session } from "./model"
+import { RECONNECTING } from "./error-text"
 
 export function demoSessions(): Session[] {
   return [
@@ -59,6 +60,9 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
   const [state, setState] = createSignal(seed)
   // The conversation this demo "shows", as a TUI's route would.
   const [shown, setShown] = createSignal<string | null>("inbox")
+  // Footer states to compare: `r` toggles the reconnecting line, `e` an error (which replaces it).
+  const [reconnecting, setReconnecting] = createSignal(false)
+  const [failed, setFailed] = createSignal(false)
   let actions: Parameters<NonNullable<PanelProps["keys"]>>[0]
   useKeyboard((event) => {
     if (props.focused === false) return
@@ -70,6 +74,8 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
     if (event.name === "u") actions.unread()
     if (event.name === "p") actions.park()
     if (event.name === "x") actions.remove()
+    if (event.name === "r") setReconnecting(!reconnecting())
+    if (event.name === "e") setFailed(!failed())
     if (event.name === "escape" || event.name === "q") renderer.destroy()
   })
   return (
@@ -77,7 +83,8 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
       <InboxPanel
         state={state()}
         sessions={sessions}
-        error=""
+        error={failed() ? "Not saved: no connection to the server" : ""}
+        notice={reconnecting() ? RECONNECTING : ""}
         loading={false}
         focused={props.focused ?? true}
         current={props.current === undefined ? shown() : props.current}
