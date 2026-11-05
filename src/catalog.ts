@@ -3,6 +3,8 @@ import type { Plugin } from "@opencode/plugin/tui"
 import type { Session, State } from "./model"
 import { readAttention, type Attention } from "./attention"
 
+/** Sessions per list request. A shorter page is the last: the server still returns a cursor after it. */
+const PAGE = 100
 const SETTLED: Session["status"][] = ["Error", "Interrupted", "Ready", "Idle"]
 
 function settled(outcome: SessionInfo["outcome"]): Session["status"] {
@@ -77,15 +79,15 @@ export async function loadCatalog(
   for (const [project, roster] of Object.entries(state.projects)) {
     if (!roster.open) continue
     let projectCursor: string | undefined
-    do {
+    for (;;) {
       const result = await client.session.list(
         projectCursor
-          ? { cursor: projectCursor, limit: 100 }
+          ? { cursor: projectCursor, limit: PAGE }
           : {
               ...(project.startsWith("/") ? { directory: project } : { project }),
               parentID: null,
               archived: false,
-              limit: 100,
+              limit: PAGE,
             },
       )
       for (const session of result.data) {
@@ -93,7 +95,8 @@ export async function loadCatalog(
         roots.set(session.id, session)
       }
       projectCursor = result.cursor.next ?? undefined
-    } while (projectCursor)
+      if (!projectCursor || result.data.length < PAGE) break
+    }
   }
   async function root(id: string): Promise<SessionInfo> {
     const session = known.get(id) ?? (await client.session.get({ sessionID: id }))

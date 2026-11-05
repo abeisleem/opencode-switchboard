@@ -10,6 +10,8 @@
 - Fixed: errors in the panel footer and the details dialog showed `[object Object]`. They now show a readable
   message, and the details dialog lists each message once. When the switchboard's server part is not loaded,
   the footer says so, and the details dialog says where to look.
+- The panel makes fewer requests: each refresh skips an empty page per project, the first open loads sessions
+  once instead of twice, and a change you make no longer triggers an extra state read.
 
 ## 0.2.0 (2026-11-01)
 
