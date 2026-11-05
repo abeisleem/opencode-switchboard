@@ -71,9 +71,11 @@ async function harness(
       : sessions.find((item) => item.id === sessionID)!
   const noop = () => {}
   let activeReads = 0
+  let snapshots = 0
   // What OpenCode would remember as the focus target when each dialog opened; see `modal` in src/tui.tsx.
   const dialogs: { saved: unknown; close: () => void; render?: () => JSX.Element; message?: string }[] = []
-  let changed: (() => void) | undefined
+  // This TUI's `changed` listener; the fake server calls it, as OpenCode does, before `act` replies.
+  let changed: ((event: { data: { revision: number } }) => void) | undefined
   let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }
   await server.setup({
     storage: {
@@ -88,8 +90,8 @@ async function harness(
         rpc = handlers
         return {
           events: {
-            emit: async () => {
-              changed?.()
+            emit: async (_name: string, data: { revision: number }) => {
+              changed?.({ data })
             },
           },
         }
@@ -111,8 +113,10 @@ async function harness(
     location: { directory: "/work" },
     client: {
       rpc: () => ({
-        snapshot: () =>
-          failures.snapshot === undefined ? rpc.snapshot() : Promise.reject(failures.snapshot),
+        snapshot: () => {
+          snapshots++
+          return failures.snapshot === undefined ? rpc.snapshot() : Promise.reject(failures.snapshot)
+        },
         act: async (action: Action) => {
           actions.push(action)
           if (failures.act !== undefined) throw failures.act
@@ -120,7 +124,7 @@ async function harness(
           return rpc.act(action)
         },
         events: {
-          on: (_type: string, listener: () => void) => {
+          on: (_type: string, listener: typeof changed) => {
             changed = listener
             return noop
           },
@@ -254,7 +258,10 @@ async function harness(
     failures,
     saved: () => saved,
     sessions,
+    /** Catalog loads: each reads the active sessions once. */
     activeReads: () => activeReads,
+    /** `snapshot` RPCs this TUI sent. */
+    snapshots: () => snapshots,
     dialogs,
     open: () => command("opencode-switchboard.open").run(),
     close: () => command("opencode-switchboard.close-current"),
@@ -669,8 +676,21 @@ const spinning = (screen: string, title: string) => new RegExp(`[⠋⠙⠹⠸⠼
 const mark = (screen: string, title: string) => screen.match(new RegExp(`(\\S?) ${title}`))?.[1] ?? ""
 
 async function until(condition: () => boolean) {
-  for (let i = 0; i < 100 && !condition(); i++) await Bun.sleep(5)
-  return condition()
+  // Capturing a frame while the renderer is still writing one fails with OutputBusy; that frame is not ready.
+  const ready = () => {
+    try {
+      return condition()
+    } catch (cause) {
+      if (cause instanceof Error && cause.message.includes("OutputBusy")) return false
+      throw cause
+    }
+  }
+  let done = ready()
+  for (let i = 0; i < 100 && !done; i++) {
+    await Bun.sleep(5)
+    done = ready()
+  }
+  return done
 }
 
 test("native running status starts and stops row spinners without waiting for the catalog poll", async () => {
@@ -1023,6 +1043,60 @@ test("a change made without a connection says it was not saved", async () => {
     const screen = run.app.captureCharFrame()
     expect(screen).toContain("! Not saved: no connection to the server")
     expect(screen).not.toContain("Reconnecting")
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("the first open loads the catalog once", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.app.captureCharFrame()).toContain("Task a")
+    // The opening refresh accepts the saved membership and loads the catalog for it; that change queues no
+    // second load.
+    await Bun.sleep(20)
+    expect(run.activeReads()).toBe(1)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a membership change from this TUI's action still refreshes the catalog", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    const reads = run.activeReads()
+    // Opening c from the host's session list admits it to its project.
+    run.hostOpen("c")
+    expect(await until(() => run.activeReads() > reads)).toBe(true)
+    expect(await until(() => run.app.captureCharFrame().includes("Task c"))).toBe(true)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("this TUI's own action reads no snapshot, while another TUI's change still does", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    await Bun.sleep(20)
+    const snapshots = run.snapshots()
+    const revision = run.saved().revision
+    await run.key("u")
+    expect(run.actions.at(-1)).toEqual({ type: "unread", sessionID: "b" })
+    expect(await until(() => run.saved().revision > revision)).toBe(true)
+    await Bun.sleep(20)
+    // The server announced the action, but its reply already carried that revision.
+    expect(run.snapshots()).toBe(snapshots)
+
+    // Another TUI's change has a revision this TUI has not seen: it reads and shows it.
+    await run.rpc.act({ type: "fold", key: "work", folded: true })
+    expect(await until(() => !run.app.captureCharFrame().includes("Task a"))).toBe(true)
+    expect(run.snapshots()).toBe(snapshots + 1)
   } finally {
     await run.dispose()
   }

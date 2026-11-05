@@ -116,6 +116,8 @@ export default Plugin.define({
     let retries = 0
     let membership = ""
     let refreshAgain = false
+    // Settles once every action this TUI has sent so far has returned and been accepted.
+    let acting: Promise<void> = Promise.resolve()
     let lastCatalog = ""
     // The mounted side panel's controls and the host's focus function for it.
     let controls: Controls | undefined
@@ -226,7 +228,11 @@ export default Plugin.define({
       await act(action)
       if (listed && enabled && viewing() === id && !projectOf(state(), id)) goBack(id)
     }
-    function accept(next: State) {
+    /**
+     * Shows a newer state. A membership change refreshes the catalog, unless `loading` says the caller is about to
+     * load it for this state anyway (the snapshot that starts a refresh).
+     */
+    function accept(next: State, loading = false) {
       // Revisions only grow; an equal one is the state already shown (e.g. a duplicate snapshot).
       // Another TUI's change updates rows here, but never this TUI's route.
       if (stopped || next.revision <= state().revision) return
@@ -237,10 +243,16 @@ export default Plugin.define({
       const membershipChanged = admitted !== membership
       membership = admitted
       setState(next)
-      if (enabled && membershipChanged) void refresh()
+      if (enabled && membershipChanged && !loading) void refresh()
     }
     /** Sends an action to the server; resolves whether it succeeded. */
-    async function act(action: Action) {
+    function act(action: Action) {
+      const done = send(action)
+      // Resolve to nothing, so the chain does not keep every earlier result.
+      acting = Promise.all([acting, done]).then(() => {})
+      return done
+    }
+    async function send(action: Action) {
       try {
         accept(await rpc.act(action, options))
         setError("")
@@ -258,7 +270,8 @@ export default Plugin.define({
       }
       setLoading(true)
       try {
-        accept(await rpc.snapshot({}, options))
+        // The catalog loads for this state next, so its membership change needs no second refresh.
+        accept(await rpc.snapshot({}, options), true)
         const result = await loadCatalog(ctx.client, state(), attention, history.current)
         if (stopped) return
         // Identical catalogs must not re-render the panel; most refreshes change nothing.
@@ -617,12 +630,16 @@ export default Plugin.define({
       ],
       bindings: ["opencode-switchboard.open", "opencode-switchboard.close-current"],
     }))
-    const stopEvents = rpc.events.on("changed", () => {
-      if (enabled)
-        void rpc
-          .snapshot({}, options)
-          .then(accept)
-          .catch((cause) => (isTransportError(cause) ? refreshFailed("changed", cause) : report(cause)))
+    const stopEvents = rpc.events.on("changed", (event) => {
+      if (!enabled) return
+      // The server announces every action, this TUI's own included, possibly before that action's reply arrives.
+      // Once this TUI's actions have returned, a revision it already has needs no snapshot.
+      void acting
+        .then(() => {
+          if (stopped || !enabled || event.data.revision <= state().revision) return
+          return rpc.snapshot({}, options).then((next) => accept(next))
+        })
+        .catch((cause) => (isTransportError(cause) ? refreshFailed("changed", cause) : report(cause)))
     })
     const stopRenames = ctx.data.on("session.renamed", () => {
       if (enabled) void refresh()
