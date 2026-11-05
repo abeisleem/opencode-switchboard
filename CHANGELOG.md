@@ -4,6 +4,9 @@
 
 - Fixed: a right-click or middle-click on a row no longer opens the session or folds the heading. The same
   goes for the close `✕`, the footer's error line, and `? help`: only a left-click acts on them.
+- Fixed: errors in the panel footer and the details dialog showed `[object Object]`. They now show a readable
+  message, and the details dialog lists each message once. When the switchboard's server part is not loaded,
+  the footer says so, and the details dialog says where to look.
 
 ## 0.2.0 (2026-11-01)
 
