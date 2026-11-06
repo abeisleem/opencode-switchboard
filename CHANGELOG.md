@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-- When another TUI closes the row of the conversation you are viewing, the footer says `Not listed`, with the
-  key that adds it back (`Not listed · ctrl+x i add`, from your `<leader>i`). Click it, or press the key, and the
-  conversation is listed in its project again. Where the panel is too narrow for the key, it says only
-  `Not listed`. An error or `Reconnecting…` takes the footer first.
+- When another TUI closes the row of the conversation you are viewing, or its project, a toast says so once:
+  `Not in the switchboard. Press ctrl+x i to add it back`, with your `<leader>i`. Press it and the conversation
+  is listed in its project again. With the open command unbound, the toast says to open the switchboard
+  instead. Closing a row yourself shows no toast.
 - Fixed: from a subagent's view, `<leader>i` did not add back its parent conversation once that row was closed.
 - `n` opens the new-session screen of the project under the cursor: its heading, one of its sessions, or its
   Parked section. Right-click a project heading for the same **New session** item. It opens in the project's

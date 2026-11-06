@@ -2,7 +2,7 @@ import { createSignal, onCleanup } from "solid-js"
 import { useKeyboard, useRenderer } from "@opentui/solid"
 import { InboxPanel, type Palette, type PanelProps } from "./panel"
 import type { MenuControls } from "./menu"
-import { initialState, projectOf, reduce, type Session } from "./model"
+import { initialState, reduce, type Session } from "./model"
 import { RECONNECTING } from "./error-text"
 
 export function demoSessions(): Session[] {
@@ -68,21 +68,9 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
   const [state, setState] = createSignal(demoState(sessions))
   // The conversation this demo "shows", as a TUI's route would.
   const [shown, setShown] = createSignal<string | null>("inbox")
-  // Footer states to compare: `r` toggles the reconnecting line, `e` an error (which replaces it), and `h` the shown
-  // conversation's row (without it, the footer says `Not listed`).
+  // Footer states to compare: `r` toggles the reconnecting line, `e` an error (which replaces it).
   const [reconnecting, setReconnecting] = createSignal(false)
   const [failed, setFailed] = createSignal(false)
-  const viewed = () => (props.current === undefined ? shown() : props.current)
-  /** Lists a session in its project, as a visit does. */
-  function admit(session: Session) {
-    setState(
-      reduce(
-        state(),
-        { type: "visit", sessionID: session.id, observed: session.idle },
-        { project: session.project, name: session.projectName, sessions: [session.id] },
-      ),
-    )
-  }
   let actions: Parameters<NonNullable<PanelProps["keys"]>>[0]
   // A stand-in for OpenCode's `menu` keymap mode: while a right-click menu is open, keys go to it alone.
   let menu: MenuControls | undefined
@@ -110,13 +98,6 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
     if (event.name === "x") actions.remove()
     if (event.name === "r") setReconnecting(!reconnecting())
     if (event.name === "e") setFailed(!failed())
-    // As another TUI closing the shown conversation's row, or adding it back: the footer's `Not listed` follows.
-    if (event.name === "h") {
-      const id = viewed()
-      const session = sessions.find((session) => session.id === id)
-      if (id && projectOf(state(), id)) setState(reduce(state(), { type: "session-remove", sessionID: id }))
-      else if (session) admit(session)
-    }
     if (event.name === "escape" || event.name === "q") renderer.destroy()
   })
   return (
@@ -128,20 +109,19 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
         notice={reconnecting() ? RECONNECTING : ""}
         loading={false}
         focused={props.focused ?? true}
-        current={viewed()}
+        current={props.current === undefined ? shown() : props.current}
         colors={DEMO_PALETTE}
         act={(action) => setState(reduce(state(), action))}
         open={(session) => {
-          admit(session)
+          setState(
+            reduce(
+              state(),
+              { type: "visit", sessionID: session.id, observed: session.idle },
+              { project: session.project, name: session.projectName, sessions: [session.id] },
+            ),
+          )
           setShown(session.id)
         }}
-        hint={(() => {
-          const id = viewed()
-          const session = sessions.find((session) => session.id === id)
-          return session && !projectOf(state(), session.id)
-            ? { shortcut: "ctrl+x i", add: () => admit(session) }
-            : undefined
-        })()}
         close={() => renderer.destroy()}
         help={() => {}}
         diagnostics={() => {}}
