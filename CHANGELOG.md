@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 (2026-11-06)
+
+Only the panel changed: the server part, its RPC, and saved state are the same as in 0.2.0. Update the plugin
+on each TUI machine to get these; a 0.2.0 server and other 0.2.0 TUIs keep working alongside it.
 
 - When another TUI closes the row of the conversation you are viewing, or its project, a toast says so once:
   `Not in the switchboard. Press ctrl+x i to add it back`, with your `<leader>i`. Press it and the conversation
