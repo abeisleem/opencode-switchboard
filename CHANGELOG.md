@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Refreshes load only the sessions the switchboard tracks, not every past session of every open project, and
+  load the open projects in parallel. In projects with hundreds of past sessions and a few tracked (6
+  projects, 1,000 sessions, 90 tracked), a refresh transfers 49 KB instead of 420 KB and takes 363 ms instead
+  of 627 ms over a link with 20 ms of latency. It makes 107 requests instead of 32, at most 8 at a time.
+  Projects where at least half the sessions are tracked are still listed, as before: with 3 projects of 30
+  sessions and 45 tracked, a refresh still makes 14 requests and now takes 115 ms instead of 190 ms at 20 ms
+  of latency.
+
 ## 0.2.1 (2026-11-06)
 
 Only the panel changed: the server part, its RPC, and saved state are the same as in 0.2.0. Update the plugin
