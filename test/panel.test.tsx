@@ -911,11 +911,12 @@ test("help lists one panel key per line in a muted column, with how to open the 
       expect(cell(app, lines[intro + offset]!.indexOf("ctrl"), intro + offset).fg).toBe("#737aa2")
       expect(cell(app, 3, intro + offset).fg).toBe("#c0caf5")
     }
-    const keys = ["↑/↓ j/k", "enter", "←/→", "u", "p", "x", "esc"]
+    const keys = ["↑/↓ j/k", "enter", "←/→", "u", "p", "x", "n", "esc"]
     const first = intro + 4
     const rows = lines.slice(first, first + keys.length)
     expect(rows.map((line) => line.slice(5, 17).trim())).toEqual(keys)
     expect(rows[keys.indexOf("p")]!.slice(17).trim()).toBe("Park or unpark")
+    expect(rows[keys.indexOf("n")]!.slice(17).trim()).toBe("New session in the project")
     // Every action starts in the same column, in normal text after a muted key.
     for (const [index, line] of rows.entries()) {
       expect(line[17]).not.toBe(" ")
@@ -1042,6 +1043,7 @@ async function menuPanel(focused = true) {
   const [state, setState] = createSignal(demoState(sessions))
   const acted: Action[] = []
   const opened: string[] = []
+  const created: string[] = []
   let controls!: Controls
   let menu: MenuControls | undefined
   const app = await testRender(
@@ -1059,6 +1061,7 @@ async function menuPanel(focused = true) {
           setState(reduce(state(), action))
         }}
         open={(session) => opened.push(session.id)}
+        newSession={(project) => created.push(project)}
         close={() => {}}
         help={() => {}}
         diagnostics={() => {}}
@@ -1084,6 +1087,8 @@ async function menuPanel(focused = true) {
     app,
     acted,
     opened,
+    /** The projects whose new-session screen was asked for. */
+    created,
     frame,
     controls: () => controls,
     menu: () => menu,
@@ -1241,26 +1246,25 @@ test("the menu's keys move a highlight and run the highlighted item or the one w
 })
 
 for (const focused of [true, false]) {
-  test(`a right-click on a project or Parked heading does nothing and leaves the cursor (focused: ${focused})`, async () => {
+  test(`a right-click on a Parked heading does nothing and leaves the cursor (focused: ${focused})`, async () => {
     const run = await menuPanel(focused)
     try {
-      for (const heading of ["dotfiles/", "Parked"]) {
-        // Point at the heading, put the cursor on a session with a key, then right-click where the pointer is.
-        await run.point(heading)
-        run.controls().reveal("session:health")
+      // Point at the heading, put the cursor on a session with a key, then right-click where the pointer is.
+      await run.point("Parked")
+      run.controls().reveal("session:health")
+      await run.frame()
+      const before = run.app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")
+      const y = lineOf(run.app, "Parked")
+      for (const button of [MouseButtons.RIGHT, MouseButtons.MIDDLE]) {
+        await run.app.mockMouse.click(10, y, button)
         await run.frame()
-        const before = run.app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")
-        const y = lineOf(run.app, heading)
-        for (const button of [MouseButtons.RIGHT, MouseButtons.MIDDLE]) {
-          await run.app.mockMouse.click(10, y, button)
-          await run.frame()
-          expect(run.menu()).toBeUndefined()
-          expect(run.app.captureCharFrame()).not.toContain("Close project")
-          expect(background(run.app, 20, y)).not.toBe(palette.target)
-          // No fold or unfold, nor anything else.
-          expect(run.app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")).toBe(before)
-          expect(run.acted).toEqual([])
-        }
+        expect(run.menu()).toBeUndefined()
+        expect(run.app.captureCharFrame()).not.toContain("New session")
+        expect(background(run.app, 20, y)).not.toBe(palette.target)
+        // No fold or unfold, nor anything else.
+        expect(run.app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")).toBe(before)
+        expect(run.acted).toEqual([])
+        expect(run.created).toEqual([])
       }
       // The cursor stayed on the session.
       run.controls().enter()
@@ -1269,7 +1273,69 @@ for (const focused of [true, false]) {
       await run.app.dispose()
     }
   })
+
+  test(`a right-click on a project heading offers only New session, for that project (focused: ${focused})`, async () => {
+    const run = await menuPanel(focused)
+    try {
+      await run.point("dotfiles/")
+      run.controls().reveal("session:health")
+      await run.frame()
+      const y = lineOf(run.app, "dotfiles/")
+      // A middle click opens nothing.
+      await run.app.mockMouse.click(10, y, MouseButtons.MIDDLE)
+      await run.frame()
+      expect(run.menu()).toBeUndefined()
+      await run.app.mockMouse.click(10, y, MouseButtons.RIGHT)
+      await run.frame()
+      expect(
+        run
+          .menu()
+          ?.items()
+          .map((item) => [item.label, item.hint]),
+      ).toEqual([["New session", "n"]])
+      const screen = run.app.captureCharFrame()
+      expect(screen).toMatch(/New session +n *$/m)
+      expect(menuShown(run.app)).toEqual([])
+      expect(background(run.app, 20, y)).toBe(palette.target)
+      // No fold or unfold; nothing runs until the item is chosen.
+      expect(run.acted).toEqual([])
+      expect(run.created).toEqual([])
+      await run.choose("New session")
+      expect(run.created).toEqual(["dotfiles"])
+      expect(run.menu()).toBeUndefined()
+      expect(run.acted).toEqual([])
+      // The cursor stayed on the session; its `n` is for its own project.
+      run.controls().newSession()
+      expect(run.created).toEqual(["dotfiles", "api-server"])
+    } finally {
+      await run.app.dispose()
+    }
+  })
 }
+
+test("n asks for the new-session screen of the cursor row's project, whatever row it is on", async () => {
+  const run = await menuPanel()
+  try {
+    for (const [key, project] of [
+      ["heading:api-server", "api-server"],
+      ["session:reconnect", "api-server"],
+      ["heading:dotfiles", "dotfiles"],
+      ["session:inbox", "dotfiles"],
+      [`heading:${parkedKey("dotfiles")}`, "dotfiles"],
+      ["session:keys", "dotfiles"],
+    ] as const) {
+      run.controls().reveal(key)
+      await run.frame()
+      run.created.length = 0
+      run.controls().newSession()
+      expect(run.created, key).toEqual([project])
+    }
+    expect(run.acted).toEqual([])
+    expect(run.opened).toEqual([])
+  } finally {
+    await run.app.dispose()
+  }
+})
 
 test("an outside click and a right-click on the menu close it without acting", async () => {
   const run = await menuPanel()

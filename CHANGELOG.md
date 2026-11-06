@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `n` opens the new-session screen of the project under the cursor: its heading, one of its sessions, or its
+  Parked section. Right-click a project heading for the same **New session** item. It opens in the project's
+  main directory, with focus in the message box, and creates no session until you send the first message; the
+  new session then appears under that project.
 - Right-click a session row for **Mark read**/**Mark unread** and **Park**/**Unpark**. Each item shows its key
   (`u`, `p`), which runs it while the menu is open. The menu acts on the session you right-clicked, which stays
   highlighted while the menu is open, and never moves the cursor. Focus returns to where it was, such as the

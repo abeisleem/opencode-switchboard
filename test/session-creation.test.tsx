@@ -8,7 +8,7 @@ import { initialState, type Action, type State } from "../src/model"
 import server from "../src/server"
 import plugin from "../src/tui"
 
-async function fixture(projectID: string) {
+async function fixture(projectID: string, options: { listed?: boolean } = {}) {
   const directory = "/new-project"
   const info = {
     id: "new-session",
@@ -23,6 +23,13 @@ async function fixture(projectID: string) {
   saved.revision = 1
   saved.projects.parked = { name: "Keep my name", open: false, sessions: ["saved"] }
   saved.sessions.saved = { placement: "parked", unread: true, seen: 0 }
+  // The project is already open in the panel, still without sessions.
+  if (options.listed)
+    saved.projects[projectID === "global" ? directory : projectID] = {
+      name: "new-project",
+      open: true,
+      sessions: [],
+    }
   const original = structuredClone(saved)
   const noop = () => {}
   let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }
@@ -49,10 +56,13 @@ async function fixture(projectID: string) {
       },
     },
   } as unknown as ServerPlugin.Context)
-  type Route = { type: "home" } | { type: "session"; sessionID: string }
+  type Route = { type: "home"; location?: { directory: string } } | { type: "session"; sessionID: string }
   const [route, navigate] = createSignal<Route>({ type: "home" })
   const listeners = new Map<string, (event: { data: { sessionID: string } }) => void>()
   let open!: () => Promise<void>
+  // The panel's key commands, by bind.
+  const keys = new Map<string, () => void>()
+  let creates = 0
   let render!: () => JSX.Element
   let renderApp!: () => JSX.Element
   let cleanup!: ReturnType<typeof plugin.setup>
@@ -65,6 +75,10 @@ async function fixture(projectID: string) {
       project: { list: async () => [{ id: projectID, canonical: projectID === "global" ? "/" : directory }] },
       session: {
         get,
+        create: async () => {
+          creates++
+          throw new Error("unexpected session.create")
+        },
         active: async () => ({}),
         list: async () => ({ data: created ? [info] : [], cursor: {} }),
       },
@@ -119,9 +133,11 @@ async function fixture(projectID: string) {
     },
     keymap: {
       dispatch: noop,
-      layer: (factory: () => { commands: { id?: string; run: () => Promise<void> }[] }) => {
-        for (const command of factory().commands)
+      layer: (factory: () => { commands: { id?: string; bind?: string; run: () => Promise<void> }[] }) => {
+        for (const command of factory().commands) {
           if (command.id === "opencode-switchboard.open") open = command.run
+          if (command.bind) keys.set(command.bind, command.run)
+        }
       },
     },
   } as unknown as Plugin.Context
@@ -136,7 +152,10 @@ async function fixture(projectID: string) {
   return {
     app,
     open,
+    route,
     navigate,
+    key: (bind: string) => keys.get(bind)!(),
+    creates: () => creates,
     original,
     saved: () => saved,
     misses: () => misses,
@@ -178,6 +197,37 @@ for (const projectID of ["global", "git-project"]) {
       expect(run.saved().sessions.saved).toEqual(run.original.sessions.saved)
       expect(run.app.captureCharFrame()).toContain("First conversation")
       expect(run.app.captureCharFrame()).not.toContain("Session not found")
+    } finally {
+      await run.dispose()
+    }
+  })
+}
+
+for (const projectID of ["global", "git-project"]) {
+  test(`n opens a ${projectID} project's new-session screen, and its first message's session joins that project`, async () => {
+    const run = await fixture(projectID, { listed: true })
+    try {
+      await run.open()
+      await run.app.renderOnce()
+      expect(run.app.captureCharFrame()).toContain("new-project/")
+      // The cursor starts on the project heading.
+      run.key("n")
+      for (let i = 0; i < 20 && !("location" in run.route()); i++) await Bun.sleep(5)
+      expect(run.route()).toEqual({ type: "home", location: { directory: "/new-project" } })
+      expect(run.creates()).toBe(0)
+      // Sending the first message: the host creates the session, routing to it before the create commits.
+      run.navigate({ type: "session", sessionID: "new-session" })
+      await run.app.renderOnce()
+      run.create()
+      await run.app.renderOnce()
+      await run.app.renderOnce()
+      const key = projectID === "global" ? "/new-project" : projectID
+      expect(run.saved().projects[key]).toEqual({
+        name: "new-project",
+        open: true,
+        sessions: ["new-session"],
+      })
+      expect(run.app.captureCharFrame()).toContain("First conversation")
     } finally {
       await run.dispose()
     }

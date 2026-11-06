@@ -15,6 +15,7 @@ const KEYS = [
   ["u", "Mark read/unread"],
   ["p", "Park or unpark"],
   ["x", "Close session or project"],
+  ["n", "New session in the project"],
   ["esc", "Close panel when focused"],
 ] as const
 

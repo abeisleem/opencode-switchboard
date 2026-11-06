@@ -24,6 +24,8 @@ const deletion = process.argv.includes("delete")
 const navigation = process.argv.includes("navigation")
 // Opt-in right-click menu coverage: node scripts/smoke.mjs session menu
 const menu = process.argv.includes("menu")
+// Opt-in new-session coverage, `n` and a project heading's menu: node scripts/smoke.mjs session newsession
+const newSession = process.argv.includes("newsession")
 const activation = process.argv.includes("activate") || deletion || navigation
 let clientPlugin = plugin
 if (bundled) {
@@ -47,7 +49,25 @@ if (bundled) {
 } else {
   await writeFile(`${directory}/.opencode/opencode.json`, JSON.stringify({ plugins: [plugin] }))
 }
-const wide = process.argv.includes("session") || deletion || navigation || menu
+const wide = process.argv.includes("session") || deletion || navigation || menu || newSession
+// A second project for the new-session scenario: a git repository, so its project is keyed by ID, not directory.
+const second = `${root}/second`
+if (newSession) {
+  await mkdir(second, { recursive: true })
+  const git = (...args) => execFileSync("git", args, { cwd: second, stdio: "pipe" })
+  git("init", "-q")
+  git(
+    "-c",
+    "user.name=smoke",
+    "-c",
+    "user.email=smoke@example.invalid",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "init",
+  )
+}
 const cols = wide ? 150 : 100
 const terminal = new xterm.Terminal({ cols, rows: 38, allowProposedApi: true })
 const env = {
@@ -70,7 +90,7 @@ const env = {
     highlights: false,
     animations: false,
     mouse: true,
-    ...(deletion || navigation ? { tabs: { mode: "off" } } : {}),
+    ...(deletion || navigation || newSession ? { tabs: { mode: "off" } } : {}),
   }),
 }
 let server
@@ -105,9 +125,9 @@ if (navigation) {
     }
   }
 }
-async function create(title) {
+async function create(title, at = directory) {
   return client
-    ? client.session.create({ title, location: { directory } })
+    ? client.session.create({ title, location: { directory: at } })
     : JSON.parse(
         execFileSync(
           "opencode",
@@ -116,7 +136,7 @@ async function create(title) {
             "--standalone",
             "session.create",
             "--data",
-            JSON.stringify({ title, location: { directory } }),
+            JSON.stringify({ title, location: { directory: at } }),
           ],
           { cwd: directory, env, encoding: "utf8" },
         ),
@@ -134,6 +154,7 @@ if (wide) {
       previous = created.id ?? created.data?.id
     }
   }
+  if (newSession) await create("Second project session", second)
 }
 if (navigation) {
   execFileSync(
@@ -215,6 +236,90 @@ async function composerFocused(title) {
   child.write("\x7f".repeat(typed))
   await wait((text) => !/┃\s+(zq)+/.test(text))
 }
+/** Opens a session with Ctrl+O, which also adds it to the panel. */
+async function ctrlO(title) {
+  child.write("\x0f")
+  await wait((text) => text.includes("Search sessions and projects"))
+  child.write(title)
+  await wait((text) => text.includes(title))
+  child.write("\r")
+  await wait((text) => !text.includes("Search sessions and projects") && current(title))
+}
+/** Right-clicks a project heading by its name, a little past its start. */
+function rightClickHeading(name) {
+  const text = `▾ ${name}/`
+  const y = screen()
+    .split("\n")
+    .findIndex((line) => line.includes(text))
+  if (y < 0) throw new Error(`No panel row shows ${text}:\n${screen()}`)
+  const x = screen().split("\n")[y].indexOf(text) + 2
+  child.write(`\x1b[<2;${x + 1};${y + 1}M\x1b[<2;${x + 1};${y + 1}m`)
+}
+/**
+ * The new-session screen for `at`: OpenCode's home prompt, located in `at` (the line under the prompt shows its
+ * directory), with no conversation and no switchboard covering it. Typed text lands in its
+ * composer, which has focus; it is deleted again, and nothing is sent.
+ */
+async function onNewSessionScreen(at) {
+  // The line under the prompt abbreviates the leading directories, so match the last two; a git branch follows
+  // after a colon.
+  const location = new RegExp(`/${at.split("/").slice(-2).join("/")}(:|\\s)`)
+  await wait(
+    (text) =>
+      text.includes("Ask anything") &&
+      location.test(text) &&
+      !text.includes("? help") &&
+      !/▾ (project|second)/.test(text),
+  )
+  let typed = 0
+  for (;;) {
+    child.write("zq")
+    typed += 2
+    try {
+      await wait((text) => /┃\s+(zq)+/.test(text), 1_000)
+      break
+    } catch (cause) {
+      if (typed >= 20) throw cause
+    }
+  }
+  child.write("\x7f".repeat(typed))
+  await wait((text) => !/┃\s+(zq)+/.test(text) && text.includes("Ask anything"))
+  // Still there: nothing covered the composer after it took focus.
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  if (screen().includes("? help") || !location.test(screen()))
+    throw new Error(`The new-session screen did not stay:\n${screen()}`)
+}
+async function newSessionScenario() {
+  // Both projects in the panel; the second is current, under its own heading.
+  await ctrlO("Second project session")
+  await wait((text) => /▾ project/.test(text) && /▾ second/.test(text) && rowOf("Isolated panel smoke") >= 0)
+  // Focus the panel on the current session's row and press n.
+  child.write("\x18i")
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  child.write("n")
+  await onNewSessionScreen(second)
+  // From the composer of a conversation in the first project, right-click that project's heading.
+  await ctrlO("Isolated panel smoke")
+  await composerFocused("Isolated panel smoke")
+  if (terminal.modes.mouseTrackingMode === "none") throw new Error("Mouse reporting is not enabled")
+  const menuShown = (text) => /New session\s+n/.test(text)
+  rightClickHeading("project")
+  await wait(menuShown)
+  if (/Mark (un)?read/.test(screen())) throw new Error("The project heading's menu shows session items")
+  child.write("n")
+  await onNewSessionScreen(directory)
+  // The fullscreen switchboard over the new-session screen: a click on the second heading's New session.
+  child.write("\x18i")
+  await wait((text) => text.includes("? help") && /▾ second/.test(text))
+  rightClickHeading("second")
+  await wait(menuShown)
+  const y = screen()
+    .split("\n")
+    .findIndex((line) => /New session\s+n/.test(line))
+  const x = screen().split("\n")[y].indexOf("New session") + 1
+  child.write(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`)
+  await onNewSessionScreen(second)
+}
 let passed = false
 try {
   if (!autoOpen) {
@@ -283,6 +388,8 @@ try {
     child.write("\r")
     await composerFocused("Another session")
     if (current("Isolated panel smoke")) throw new Error("The right-clicks moved the panel cursor")
+  } else if (newSession) {
+    await newSessionScenario()
   } else if (navigation) {
     await wait(() => current("Isolated panel smoke") && !current("Another session"))
     child.write("\x18\x1b[D") // Focus the conversation pane before closing its row.
@@ -371,7 +478,7 @@ try {
     frame,
   )
   console.log(
-    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""}${menu ? ", right-click menu from the composer" : ""})`,
+    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""}${menu ? ", right-click menu from the composer" : ""}${newSession ? ", new session with n and the heading menu" : ""})`,
   )
   passed = true
 } finally {

@@ -90,6 +90,12 @@ export type Admission = { project: string; name: string; sessions: string[] }
 /** A project's Parked fold. The prefix keeps it from equaling a project key, which may be a directory path. */
 export const parkedKey = (project: string) => `parked:${project}`
 
+/** The project a row belongs to: a project heading's own, a Parked heading's, or a session's. */
+export function rowProject(row: Row) {
+  if (row.kind === "session") return row.session.project
+  return row.depth > 0 && row.key.startsWith(parkedKey("")) ? row.key.slice(parkedKey("").length) : row.key
+}
+
 export function workingSet(sessions: Session[], state: State) {
   const catalog = new Map(sessions.map((session) => [session.id, session]))
   return Object.entries(state.projects).flatMap(([key, project]) =>
