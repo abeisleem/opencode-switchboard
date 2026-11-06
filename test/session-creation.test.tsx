@@ -63,6 +63,8 @@ async function fixture(projectID: string, options: { listed?: boolean } = {}) {
   // The panel's key commands, by bind.
   const keys = new Map<string, () => void>()
   let creates = 0
+  // The panel reads the open command's shortcut only while its footer is due to say `Not listed`.
+  let hintReads = 0
   let render!: () => JSX.Element
   let renderApp!: () => JSX.Element
   let cleanup!: ReturnType<typeof plugin.setup>
@@ -133,6 +135,10 @@ async function fixture(projectID: string, options: { listed?: boolean } = {}) {
     },
     keymap: {
       dispatch: noop,
+      shortcuts: () => {
+        hintReads++
+        return ["ctrl+x i"]
+      },
       layer: (factory: () => { commands: { id?: string; bind?: string; run: () => Promise<void> }[] }) => {
         for (const command of factory().commands) {
           if (command.id === "opencode-switchboard.open") open = command.run
@@ -159,6 +165,7 @@ async function fixture(projectID: string, options: { listed?: boolean } = {}) {
     original,
     saved: () => saved,
     misses: () => misses,
+    hintReads: () => hintReads,
     create(id = info.id) {
       created = true
       listeners.get("session.created")?.({ data: { sessionID: id } })
@@ -197,6 +204,8 @@ for (const projectID of ["global", "git-project"]) {
       expect(run.saved().sessions.saved).toEqual(run.original.sessions.saved)
       expect(run.app.captureCharFrame()).toContain("First conversation")
       expect(run.app.captureCharFrame()).not.toContain("Session not found")
+      // The draft and its new project were listed as they arrived: `Not listed` was never due.
+      expect(run.hintReads()).toBe(0)
     } finally {
       await run.dispose()
     }

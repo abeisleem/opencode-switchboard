@@ -33,7 +33,8 @@ Run `bun run dev` in the checkout. It starts `opencode` with the plugin loaded f
   restart the TUI to test panel changes.
 
 `bun run demo` renders the panel with fixture data. It needs no server. In the demo, `r` toggles the footer's
-`Reconnecting…` line and `e` toggles an error line; `q` quits. Right-click a session row to open its real menu.
+`Reconnecting…` line, `e` toggles an error line, and `h` removes or adds back the shown conversation's row (the
+footer says `Not listed` while it is gone; click it to add the row back); `q` quits. Right-click a session row to open its real menu.
 The demo stands in for OpenCode's `menu` keymap mode: while the menu is open, keys go to it alone (↑/↓ or
 `j`/`k` to highlight, Enter to run, an item's key to run it, Esc to close).
 

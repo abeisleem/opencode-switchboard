@@ -26,6 +26,10 @@ const navigation = process.argv.includes("navigation")
 const menu = process.argv.includes("menu")
 // Opt-in new-session coverage, `n` and a project heading's menu: node scripts/smoke.mjs session newsession
 const newSession = process.argv.includes("newsession")
+// Opt-in no-row hint coverage, a second client closing the viewed row: node scripts/smoke.mjs session norow
+const noRow = process.argv.includes("norow")
+// A real separate server, so a second client can change the shared state.
+const remoteServer = navigation || noRow
 const activation = process.argv.includes("activate") || deletion || navigation
 let clientPlugin = plugin
 if (bundled) {
@@ -49,7 +53,7 @@ if (bundled) {
 } else {
   await writeFile(`${directory}/.opencode/opencode.json`, JSON.stringify({ plugins: [plugin] }))
 }
-const wide = process.argv.includes("session") || deletion || navigation || menu || newSession
+const wide = process.argv.includes("session") || deletion || navigation || menu || newSession || noRow
 // A second project for the new-session scenario: a git repository, so its project is keyed by ID, not directory.
 const second = `${root}/second`
 if (newSession) {
@@ -80,7 +84,7 @@ const env = {
   XDG_CACHE_HOME: `${root}/cache`,
   OPENCODE_DB: `${root}/test.db`,
   OPENCODE_CONFIG_CONTENT: "{}",
-  ...(navigation
+  ...(remoteServer
     ? { OPENCODE_PASSWORD: "switchboard-smoke", OPENCODE_SERVER_PASSWORD: "switchboard-smoke" }
     : {}),
   OPENCODE_CLI_CONFIG_CONTENT: JSON.stringify({
@@ -90,7 +94,7 @@ const env = {
     highlights: false,
     animations: false,
     mouse: true,
-    ...(deletion || navigation || newSession ? { tabs: { mode: "off" } } : {}),
+    ...(deletion || navigation || newSession || noRow ? { tabs: { mode: "off" } } : {}),
   }),
 }
 let server
@@ -98,7 +102,7 @@ let remote
 let client
 const headers = { authorization: `Basic ${Buffer.from("opencode:switchboard-smoke").toString("base64")}` }
 // A real separate server reproduces workstation --server/--session startup with existing saved state.
-if (navigation) {
+if (remoteServer) {
   const reservation = createServer()
   await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve))
   const port = reservation.address().port
@@ -156,7 +160,8 @@ if (wide) {
   }
   if (newSession) await create("Second project session", second)
 }
-if (navigation) {
+/** Sends switchboard actions to the private server as a second client would, such as another TUI. */
+function remoteAct(actions) {
   execFileSync(
     "bun",
     [
@@ -165,13 +170,14 @@ if (navigation) {
     import { OpenCode } from "@opencode/client"
     import { Switchboard } from "./src/rpc"
     const rpc = OpenCode.make({ baseUrl: ${JSON.stringify(remote)}, headers: ${JSON.stringify(headers)} }).rpc(Switchboard)
-    for (const sessionID of ${JSON.stringify([session, previous])})
-      await rpc.act({ type: "visit", sessionID, observed: 0 }, { location: { directory: ${JSON.stringify(directory)} } })
+    for (const action of ${JSON.stringify(actions)})
+      await rpc.act(action, { location: { directory: ${JSON.stringify(directory)} } })
   `,
     ],
     { cwd: repo, env, stdio: "pipe" },
   )
 }
+if (navigation) remoteAct([session, previous].map((sessionID) => ({ type: "visit", sessionID, observed: 0 })))
 const child = pty.spawn(
   "opencode",
   [
@@ -320,6 +326,25 @@ async function newSessionScenario() {
   child.write(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`)
   await onNewSessionScreen(second)
 }
+/**
+ * Another client closes the row of the conversation this TUI shows: the row goes, the conversation stays, and the
+ * footer says `Not listed` with the open command's key. A click on it lists the conversation again.
+ */
+async function noRowScenario() {
+  await wait(() => current("Isolated panel smoke"))
+  remoteAct([{ type: "session-remove", sessionID: session }])
+  const hint = "Not listed · ctrl+x i add"
+  await wait((text) => rowOf("Isolated panel smoke") < 0 && text.includes(hint))
+  if (!/┃/.test(screen())) throw new Error(`The conversation did not stay open:\n${screen()}`)
+  await writeFile(`${repo}/artifacts/opencode-${bundled ? "bundled-" : ""}norow-hint.txt`, screen())
+  if (terminal.modes.mouseTrackingMode === "none") throw new Error("Mouse reporting is not enabled")
+  const y = screen()
+    .split("\n")
+    .findIndex((line) => line.includes(hint))
+  const x = screen().split("\n")[y].indexOf(hint) + 2
+  child.write(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`)
+  await wait((text) => current("Isolated panel smoke") && !text.includes("Not listed"))
+}
 let passed = false
 try {
   if (!autoOpen) {
@@ -390,6 +415,8 @@ try {
     if (current("Isolated panel smoke")) throw new Error("The right-clicks moved the panel cursor")
   } else if (newSession) {
     await newSessionScenario()
+  } else if (noRow) {
+    await noRowScenario()
   } else if (navigation) {
     await wait(() => current("Isolated panel smoke") && !current("Another session"))
     child.write("\x18\x1b[D") // Focus the conversation pane before closing its row.
@@ -478,7 +505,7 @@ try {
     frame,
   )
   console.log(
-    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""}${menu ? ", right-click menu from the composer" : ""}${newSession ? ", new session with n and the heading menu" : ""})`,
+    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""}${menu ? ", right-click menu from the composer" : ""}${newSession ? ", new session with n and the heading menu" : ""}${noRow ? ", Not listed after another client closes the row" : ""})`,
   )
   passed = true
 } finally {

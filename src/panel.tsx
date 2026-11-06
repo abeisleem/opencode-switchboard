@@ -215,6 +215,72 @@ export type PanelProps = {
   }) => void
   /** Binds the right-click menu's keys while it is open (see RowMenu); without it the menu takes the mouse only. */
   menuKeys?: (controls: MenuControls) => void
+  /**
+   * Set while the conversation this TUI shows has no row: the footer says `Not listed`, below an error or a notice.
+   * `shortcut` is the open command's key as the keymap formats it, if bound; `add` lists the conversation again.
+   */
+  hint?: { shortcut?: string; add: () => void }
+}
+
+const NOT_LISTED = "Not listed"
+
+/**
+ * The footer's `Not listed` line, laid out like OpenCode's prompt footer key hints: muted words, then ` · ` and
+ * the shortcut in text color with a short muted label. It measures the room left beside `? help`: when the
+ * shortcut part does not fit there, only the words show, and nothing is ever clipped mid-word. Hovering brightens it; a left click adds the conversation back.
+ */
+function NotListed(props: {
+  hint: { shortcut?: string; add: () => void }
+  colors: Palette
+  focused: boolean
+}) {
+  let box: BoxRenderable | undefined
+  const [width, setWidth] = createSignal(0)
+  const [hovered, setHovered] = createSignal(false)
+  // One blank cell always separates the hint from `? help`.
+  const fits = (text: string) => cellWidth(text) < width()
+  const shortcut = () => {
+    const key = props.hint.shortcut
+    return key && fits(`${NOT_LISTED} · ${key} add`) ? key : undefined
+  }
+  return (
+    <box
+      ref={box}
+      flexGrow={1}
+      flexBasis={0}
+      minWidth={0}
+      height={1}
+      flexDirection="row"
+      onSizeChange={() => setWidth(box?.width ?? 0)}
+    >
+      <Show when={fits(NOT_LISTED)}>
+        <text
+          selectable={false}
+          flexShrink={0}
+          wrapMode="none"
+          fg={hovered() ? props.colors.text : props.colors.muted}
+          onMouseOver={() => setHovered(true)}
+          onMouseOut={() => setHovered(false)}
+          onMouseDown={(event) => {
+            if (event.button !== MouseButton.LEFT) return
+            // As a row click: an unfocused panel acts without taking focus from the conversation.
+            if (!props.focused) event.stopPropagation()
+            props.hint.add()
+          }}
+        >
+          {NOT_LISTED}
+          <Show when={shortcut()}>
+            {(key) => (
+              <>
+                {" · "}
+                <span style={{ fg: props.colors.text }}>{key()}</span> add
+              </>
+            )}
+          </Show>
+        </text>
+      </Show>
+    </box>
+  )
 }
 
 export function InboxPanel(props: PanelProps) {
@@ -650,16 +716,24 @@ export function InboxPanel(props: PanelProps) {
         </Show>
       </scrollbox>
       <box height={1} flexShrink={0} flexDirection="row" paddingLeft={1} paddingRight={1}>
-        <text
-          selectable={false}
-          flexGrow={1}
-          minWidth={0}
-          wrapMode="none"
-          fg={props.error ? props.colors.error : props.colors.muted}
-          onMouseDown={left(props.diagnostics)}
+        {/* An error, then a notice such as Reconnecting…, then the no-row hint: the first present takes the line. */}
+        <Show
+          when={!props.error && !props.notice && props.hint}
+          fallback={
+            <text
+              selectable={false}
+              flexGrow={1}
+              minWidth={0}
+              wrapMode="none"
+              fg={props.error ? props.colors.error : props.colors.muted}
+              onMouseDown={left(props.diagnostics)}
+            >
+              {props.error ? `! ${props.error}` : (props.notice ?? "")}
+            </text>
+          }
         >
-          {props.error ? `! ${props.error}` : (props.notice ?? "")}
-        </text>
+          {(hint) => <NotListed hint={hint()} colors={props.colors} focused={props.focused} />}
+        </Show>
         <text selectable={false} onMouseDown={left(props.help)}>
           <span style={{ fg: props.colors.muted }}>?</span>
           <span style={{ fg: props.colors.text }}> help</span>

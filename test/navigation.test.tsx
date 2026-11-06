@@ -42,6 +42,8 @@ async function harness(
     route?: Route
     members?: string[]
     visitGate?: Promise<void>
+    /** Holds every snapshot read until it settles. */
+    snapshotGate?: Promise<void>
     live?: Partial<LiveSession>
     active?: () => Record<string, unknown>
     approvals?: () => string[]
@@ -161,8 +163,9 @@ async function harness(
     location: { directory: "/work" },
     client: {
       rpc: () => ({
-        snapshot: () => {
+        snapshot: async () => {
           snapshots++
+          await options.snapshotGate
           return failures.snapshot === undefined ? rpc.snapshot() : Promise.reject(failures.snapshot)
         },
         act: async (action: Action) => {
@@ -1497,6 +1500,169 @@ test("a fullscreen project heading's New session item runs on a click, and the P
     expect(await until(() => run.route().type === "home")).toBe(true)
     expect(run.route()).toEqual(HOME_AT_WORK as Route)
   } finally {
+    await run.dispose()
+  }
+})
+
+// The footer's `Not listed` (#57).
+
+/** The panel's footer line, and a left click on its `Not listed`. */
+function footer(run: Awaited<ReturnType<typeof harness>>) {
+  const lines = () => run.app.captureCharFrame().split("\n")
+  const y = () => lines().findIndex((line) => line.includes("? help"))
+  return {
+    text: () => lines()[y()] ?? "",
+    async click() {
+      await run.app.mockMouse.click(lines()[y()]!.indexOf("Not listed") + 2, y())
+    },
+  }
+}
+
+test("when another TUI closes the viewed row, the footer says Not listed with the open key, and a click adds it back", async () => {
+  const run = await harness({
+    shortcuts: (id) => (id === "opencode-switchboard.open" ? ["ctrl+x i"] : []),
+  })
+  try {
+    await run.open()
+    await run.frame()
+    expect(footer(run).text()).not.toContain("Not listed")
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    expect(await until(() => footer(run).text().includes("Not listed · ctrl+x i add"))).toBe(true)
+    expect(run.app.captureCharFrame()).not.toContain("Task b")
+    expect(run.route()).toEqual({ type: "session", sessionID: "b" })
+    const actions = run.actions.length
+    await footer(run).click()
+    expect(await until(() => run.app.captureCharFrame().includes("Task b"))).toBe(true)
+    expect(run.actions.slice(actions)).toEqual([{ type: "visit", sessionID: "b", observed: 0 }])
+    expect(run.saved().projects.work?.sessions).toContain("b")
+    await run.frame()
+    expect(footer(run).text()).not.toContain("Not listed")
+    expect(run.bold("Task b")).toBe(true)
+    expect(run.route()).toEqual({ type: "session", sessionID: "b" })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a closed project hides the viewed row too, and Not listed reopens it", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    await run.rpc.act({ type: "project-close", project: "work" })
+    // The open command is unbound here, so the footer names no key.
+    expect(await until(() => /^ Not listed +\? help/.test(footer(run).text()))).toBe(true)
+    await footer(run).click()
+    expect(await until(() => run.app.captureCharFrame().includes("Task b"))).toBe(true)
+    expect(run.saved().projects.work?.open).toBe(true)
+    await run.frame()
+    expect(footer(run).text()).not.toContain("Not listed")
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("Not listed waits for the first state and for the visit that lists a conversation never listed", async () => {
+  const snapshot = Promise.withResolvers<void>()
+  const visit = Promise.withResolvers<void>()
+  const run = await harness({ members: ["a"], snapshotGate: snapshot.promise, visitGate: visit.promise })
+  const opening = run.open()
+  try {
+    await run.frame()
+    expect(footer(run).text()).toContain("? help")
+    expect(footer(run).text()).not.toContain("Not listed")
+    snapshot.resolve()
+    expect(await until(() => run.actions.some((action) => action.type === "visit"))).toBe(true)
+    await run.frame()
+    expect(run.app.captureCharFrame()).toContain("Task a")
+    expect(footer(run).text()).not.toContain("Not listed")
+    visit.resolve()
+    await opening
+    await run.frame()
+    expect(run.app.captureCharFrame()).toContain("Task b")
+    expect(footer(run).text()).not.toContain("Not listed")
+  } finally {
+    snapshot.resolve()
+    visit.resolve()
+    await opening
+    await run.dispose()
+  }
+})
+
+test("from a subagent, Not listed and the open command list its root again", async () => {
+  const run = await harness({ route: { type: "session", sessionID: "child" } })
+  try {
+    await run.open()
+    await run.frame()
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    expect(await until(() => footer(run).text().includes("Not listed"))).toBe(true)
+    await footer(run).click()
+    expect(await until(() => run.app.captureCharFrame().includes("Task b"))).toBe(true)
+    expect(run.route()).toEqual({ type: "session", sessionID: "child" })
+    expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "b", observed: 0 })
+    // The open command does the same.
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    expect(await until(() => footer(run).text().includes("Not listed"))).toBe(true)
+    await run.open()
+    await run.frame()
+    expect(run.app.captureCharFrame()).toContain("Task b")
+    expect(footer(run).text()).not.toContain("Not listed")
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("over the fullscreen switchboard, Not listed adds back the conversation it covers", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    run.navigate({ type: "plugin", id: "opencode-switchboard", name: "switchboard" })
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    expect(await until(() => footer(run).text().includes("Not listed"))).toBe(true)
+    await footer(run).click()
+    expect(await until(() => run.app.captureCharFrame().includes("Task b"))).toBe(true)
+    expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "b", observed: 0 })
+    expect(run.route()).toEqual({ type: "plugin", id: "opencode-switchboard", name: "switchboard" })
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("closing the viewed row in this TUI goes back without showing Not listed", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    await run.close().run()
+    await run.frame()
+    expect(run.route()).toEqual({ type: "session", sessionID: "a" })
+    expect(footer(run).text()).not.toContain("Not listed")
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("opening an unlisted session while the switchboard is open shows no Not listed while its visit lands", async () => {
+  const options: Parameters<typeof harness>[0] = {}
+  const run = await harness(options)
+  const gate = Promise.withResolvers<void>()
+  try {
+    await run.open()
+    await run.frame()
+    // Every visit from here on waits for the gate.
+    options.visitGate = gate.promise
+    run.hostOpen("c")
+    expect(await until(() => run.actions.at(-1)?.type === "visit")).toBe(true)
+    await run.frame()
+    expect(footer(run).text()).toContain("? help")
+    expect(footer(run).text()).not.toContain("Not listed")
+    gate.resolve()
+    expect(await until(() => run.app.captureCharFrame().includes("Task c"))).toBe(true)
+    await run.frame()
+    expect(footer(run).text()).not.toContain("Not listed")
+  } finally {
+    gate.resolve()
     await run.dispose()
   }
 })
