@@ -93,7 +93,11 @@ async function fixture(projectID: string) {
     },
     theme: {
       text: { base: color, muted: color, feedback: { error: { base: color } } },
-      background: { base: color, raised: { base: color }, action: { primary: { hovered: color } } },
+      background: {
+        base: color,
+        raised: { base: color, high: color },
+        action: { primary: { hovered: color } },
+      },
       hue: { accent: { 200: color }, interactive: { 200: color } },
       decrease: (value: RGBA) => value,
     },

@@ -3,11 +3,12 @@ import { rgbToHex, RGBA, TextAttributes } from "@opentui/core"
 import { MouseButtons } from "@opentui/core/testing"
 import { testRender } from "@opentui/solid"
 import type { Plugin } from "@opencode/plugin/tui"
-import { createSignal, type JSX } from "solid-js"
-import { DEMO_PALETTE as palette, Demo, demoSessions } from "../src/demo"
+import { createSignal, onCleanup, type JSX } from "solid-js"
+import { DEMO_PALETTE as palette, Demo, demoSessions, demoState } from "../src/demo"
 import { HELP_COMMANDS, HelpDialog, helpShortcuts, type HelpShortcuts } from "../src/help"
-import { InboxPanel, tint } from "../src/panel"
-import { initialState, parkedKey, type Action } from "../src/model"
+import { InboxPanel, tint, type PanelProps } from "../src/panel"
+import type { MenuControls } from "../src/menu"
+import { initialState, parkedKey, reduce, type Action } from "../src/model"
 import plugin from "../src/tui"
 
 test("panel mirrors the native rail: left indicators, no header, footer help only", async () => {
@@ -343,7 +344,7 @@ test("the close ✕ has a gap before it and highlighted target padding after it"
 })
 
 for (const focused of [true, false]) {
-  test(`only the left button opens a row, folds a heading, closes, or opens help (focused: ${focused})`, async () => {
+  test(`only the left button opens a row, folds a heading, closes, or opens help; middle does nothing (focused: ${focused})`, async () => {
     const sessions = demoSessions()
     const state = initialState()
     for (const session of sessions) {
@@ -384,13 +385,15 @@ for (const focused of [true, false]) {
       const heading = lineOf(app, "api-server")
       const footer = lineOf(app, "? help")
       const help = app.captureCharFrame().split("\n")[footer]!.indexOf("?")
+      // A right-click on a row opens its menu (see the menu tests); a middle click on a row does nothing.
+      await app.mockMouse.click(8, row, MouseButtons.MIDDLE)
+      await app.mockMouse.click(8, heading, MouseButtons.MIDDLE)
+      // The ✕ of the hovered heading.
+      await app.mockMouse.moveTo(8, heading)
+      await app.renderOnce()
+      await app.mockMouse.click(44, heading, MouseButtons.MIDDLE)
+      // Neither other button acts on the footer's error line or help.
       for (const button of [MouseButtons.RIGHT, MouseButtons.MIDDLE]) {
-        await app.mockMouse.click(8, row, button)
-        await app.mockMouse.click(8, heading, button)
-        // The ✕ of the hovered heading, then the footer's error line and help.
-        await app.mockMouse.moveTo(8, heading)
-        await app.renderOnce()
-        await app.mockMouse.click(44, heading, button)
         await app.mockMouse.click(2, footer, button)
         await app.mockMouse.click(help, footer, button)
         await app.renderOnce()
@@ -604,7 +607,11 @@ test("native session renames refresh mounted rows without waiting for the poll",
     },
     theme: {
       text: { base: color, muted: color, feedback: { error: { base: color } } },
-      background: { base: color, raised: { base: color }, action: { primary: { hovered: color } } },
+      background: {
+        base: color,
+        raised: { base: color, high: color },
+        action: { primary: { hovered: color } },
+      },
       hue: { accent: { 200: color }, interactive: { 200: color } },
       decrease: (value: RGBA) => value,
     },
@@ -1009,6 +1016,304 @@ test("the footer shows a notice muted and without !, and an error in the error c
     expect(line()).toContain("! Not saved: no connection to the server")
     expect(line()).not.toContain("Reconnecting")
     expect(cell(app, 1, footer)).toMatchObject({ char: "!", fg: palette.error })
+  } finally {
+    await app.dispose()
+  }
+})
+
+// Right-click menus (#64).
+
+type App = Awaited<ReturnType<typeof testRender>>
+type Controls = Parameters<NonNullable<PanelProps["keys"]>>[0]
+
+/** The background of the cell at (x, y) in the last frame, as hex. */
+function background(app: App, x: number, y: number) {
+  let left = 0
+  for (const span of app.captureSpans().lines[y]!.spans) {
+    if (x < left + span.width) return rgbToHex(span.bg)
+    left += span.width
+  }
+  throw new Error(`no cell at ${x},${y}`)
+}
+
+/** The demo's sessions in a panel that records what it sends and applies it, as the server would. */
+async function menuPanel(focused = true) {
+  const sessions = demoSessions()
+  const [state, setState] = createSignal(demoState(sessions))
+  const acted: Action[] = []
+  const opened: string[] = []
+  let controls!: Controls
+  let menu: MenuControls | undefined
+  const app = await testRender(
+    () => (
+      <InboxPanel
+        state={state()}
+        sessions={sessions}
+        colors={palette}
+        error=""
+        loading={false}
+        focused={focused}
+        current={null}
+        act={(action) => {
+          acted.push(action)
+          setState(reduce(state(), action))
+        }}
+        open={(session) => opened.push(session.id)}
+        close={() => {}}
+        help={() => {}}
+        diagnostics={() => {}}
+        keys={(value) => {
+          controls = value
+        }}
+        menuKeys={(value) => {
+          menu = value
+          onCleanup(() => {
+            if (menu === value) menu = undefined
+          })
+        }}
+      />
+    ),
+    { width: 60, height: 34 },
+  )
+  async function frame() {
+    await app.renderOnce()
+    await app.renderOnce()
+  }
+  await frame()
+  return {
+    app,
+    acted,
+    opened,
+    frame,
+    controls: () => controls,
+    menu: () => menu,
+    /** Points at a row; in a focused panel, as in native lists, that alone moves the cursor there. */
+    async point(text: string) {
+      await app.mockMouse.moveTo(10, lineOf(app, text))
+      await frame()
+    },
+    /** Right-clicks a row where the pointer already is, as a right-click after pointing does. */
+    async rightClick(text: string) {
+      await app.mockMouse.moveTo(10, lineOf(app, text))
+      await app.mockMouse.click(10, lineOf(app, text), MouseButtons.RIGHT)
+      await frame()
+    },
+    /** Left-clicks a menu item by its label. */
+    async choose(label: string) {
+      const y = lineOf(app, label)
+      expect(y).toBeGreaterThanOrEqual(0)
+      await app.mockMouse.click(app.captureCharFrame().split("\n")[y]!.indexOf(label), y)
+      await frame()
+    },
+  }
+}
+
+const MENU_LABELS = ["Mark read", "Mark unread", "Park", "Unpark"]
+const menuShown = (app: App) => {
+  const screen = app.captureCharFrame()
+  return MENU_LABELS.filter((label) => new RegExp(`${label} +[upx] *$`, "m").test(screen))
+}
+
+for (const focused of [true, false]) {
+  test(`a right-click on a session opens its menu, never the session, and leaves the cursor (focused: ${focused})`, async () => {
+    const run = await menuPanel(focused)
+    try {
+      // Point at "Diagnose reconnect", put the cursor on "Check service health" with a key, then right-click.
+      await run.point("Diagnose reconnect")
+      run.controls().reveal("session:health")
+      await run.frame()
+      await run.app.mockMouse.click(10, lineOf(run.app, "Diagnose reconnect"), MouseButtons.RIGHT)
+      await run.frame()
+      expect(menuShown(run.app)).toEqual(["Mark read", "Park"])
+      // Each item shows its panel key in the menu's right column.
+      const screen = run.app.captureCharFrame().split("\n")
+      const read = screen.find((line) => line.includes("Mark read"))!
+      const park = screen.find((line) => /Park +p/.test(line))!
+      expect(read.indexOf("u")).toBe(park.indexOf("p"))
+      expect(read.trimEnd().endsWith("u")).toBe(true)
+      expect(run.opened).toEqual([])
+      expect(run.acted).toEqual([])
+      // The right-clicked row takes its own fill while the menu is open.
+      const row = lineOf(run.app, "Diagnose reconnect")
+      expect(background(run.app, 20, row)).toBe(palette.target)
+      // The menu's colors: the raised surface, its key in the hint color.
+      const menuLine = lineOf(run.app, "Mark read")
+      expect(background(run.app, read.indexOf("Mark read"), menuLine)).toBe(palette.menu.background)
+      const hint = run.app.captureSpans().lines[menuLine]!.spans.find((span) => span.text.trim() === "u")!
+      expect(rgbToHex(hint.fg)).toBe(palette.menu.hint)
+      expect(hint.attributes & TextAttributes.BOLD).toBe(0)
+      // Closing without acting removes the fill; Enter still opens the cursor row, not the right-clicked one.
+      run.menu()!.close()
+      await run.frame()
+      expect(menuShown(run.app)).toEqual([])
+      expect(background(run.app, 20, row)).not.toBe(palette.target)
+      run.controls().enter()
+      expect(run.opened).toEqual(["health"])
+    } finally {
+      await run.app.dispose()
+    }
+  })
+}
+
+test("menu items send target states for the right-clicked row, close the menu, and leave the cursor", async () => {
+  // As when the conversation has focus: the user views one session and right-clicks another row.
+  const run = await menuPanel(false)
+  try {
+    run.controls().reveal("session:health")
+    await run.frame()
+    await run.rightClick("Diagnose reconnect")
+    await run.choose("Mark read")
+    expect(run.acted).toEqual([{ type: "read", sessionID: "reconnect", observed: 4 }])
+    expect(menuShown(run.app)).toEqual([])
+    await run.rightClick("Diagnose reconnect")
+    expect(menuShown(run.app)).toEqual(["Mark unread", "Park"])
+    await run.choose("Mark unread")
+    expect(run.acted.at(-1)).toEqual({ type: "unread", sessionID: "reconnect" })
+    await run.rightClick("Diagnose reconnect")
+    await run.choose("Park")
+    expect(run.acted.at(-1)).toEqual({ type: "place", sessionID: "reconnect", placement: "parked" })
+    await run.rightClick("Diagnose reconnect")
+    expect(menuShown(run.app)).toEqual(["Mark read", "Unpark"])
+    await run.choose("Unpark")
+    expect(run.acted.at(-1)).toEqual({ type: "place", sessionID: "reconnect", placement: "active" })
+    expect(menuShown(run.app)).toEqual([])
+    // The cursor stayed on "Check service health" throughout; the keys still act on it.
+    run.controls().park()
+    expect(run.acted.at(-1)).toEqual({ type: "place", sessionID: "health", placement: "parked" })
+    run.controls().enter()
+    expect(run.opened).toEqual(["health"])
+  } finally {
+    await run.app.dispose()
+  }
+})
+
+test("in a focused panel, choosing an item over another row leaves the cursor until the pointer moves", async () => {
+  const run = await menuPanel(true)
+  try {
+    await run.point("Check service health")
+    run.controls().reveal("heading:api-server")
+    await run.frame()
+    await run.app.mockMouse.click(10, lineOf(run.app, "Check service health"), MouseButtons.RIGHT)
+    await run.frame()
+    // The menu covers the rows below; once it closes, the pointer rests on one of them.
+    await run.choose("Park")
+    expect(run.acted).toEqual([{ type: "place", sessionID: "health", placement: "parked" }])
+    run.controls().enter()
+    expect(run.acted.at(-1)).toEqual({ type: "collapse", key: "api-server" })
+    // A real move follows the pointer with the cursor again.
+    run.controls().enter()
+    await run.point("Inbox panel")
+    run.controls().enter()
+    expect(run.opened).toEqual(["inbox"])
+  } finally {
+    await run.app.dispose()
+  }
+})
+
+test("the menu's keys move a highlight and run the highlighted item or the one whose key is pressed", async () => {
+  const run = await menuPanel()
+  try {
+    await run.rightClick("Diagnose reconnect")
+    // Enter runs nothing until an item is highlighted.
+    run.menu()!.run()
+    expect(run.acted).toEqual([])
+    run.menu()!.move(1)
+    run.menu()!.move(1)
+    await run.frame()
+    const park = lineOf(run.app, "Park")
+    expect(background(run.app, 12, park)).toBe(palette.menu.selected)
+    run.menu()!.run()
+    await run.frame()
+    expect(run.acted).toEqual([{ type: "place", sessionID: "reconnect", placement: "parked" }])
+    expect(menuShown(run.app)).toEqual([])
+    await run.rightClick("Diagnose reconnect")
+    run
+      .menu()!
+      .items()
+      .find((item) => item.hint === "u")!
+      .run()
+    await run.frame()
+    expect(run.acted.at(-1)).toEqual({ type: "read", sessionID: "reconnect", observed: 4 })
+    expect(menuShown(run.app)).toEqual([])
+  } finally {
+    await run.app.dispose()
+  }
+})
+
+for (const focused of [true, false]) {
+  test(`a right-click on a project or Parked heading does nothing and leaves the cursor (focused: ${focused})`, async () => {
+    const run = await menuPanel(focused)
+    try {
+      for (const heading of ["dotfiles/", "Parked"]) {
+        // Point at the heading, put the cursor on a session with a key, then right-click where the pointer is.
+        await run.point(heading)
+        run.controls().reveal("session:health")
+        await run.frame()
+        const before = run.app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")
+        const y = lineOf(run.app, heading)
+        for (const button of [MouseButtons.RIGHT, MouseButtons.MIDDLE]) {
+          await run.app.mockMouse.click(10, y, button)
+          await run.frame()
+          expect(run.menu()).toBeUndefined()
+          expect(run.app.captureCharFrame()).not.toContain("Close project")
+          expect(background(run.app, 20, y)).not.toBe(palette.target)
+          // No fold or unfold, nor anything else.
+          expect(run.app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")).toBe(before)
+          expect(run.acted).toEqual([])
+        }
+      }
+      // The cursor stayed on the session.
+      run.controls().enter()
+      expect(run.opened).toEqual(["health"])
+    } finally {
+      await run.app.dispose()
+    }
+  })
+}
+
+test("an outside click and a right-click on the menu close it without acting", async () => {
+  const run = await menuPanel()
+  try {
+    await run.rightClick("Diagnose reconnect")
+    // An outside click lands on the overlay, not on the row beneath it.
+    await run.app.mockMouse.click(10, lineOf(run.app, "Check service health"))
+    await run.frame()
+    expect(menuShown(run.app)).toEqual([])
+    await run.rightClick("Diagnose reconnect")
+    const y = lineOf(run.app, "Mark read")
+    await run.app.mockMouse.click(
+      run.app.captureCharFrame().split("\n")[y]!.indexOf("Mark read"),
+      y,
+      MouseButtons.RIGHT,
+    )
+    await run.frame()
+    expect(menuShown(run.app)).toEqual([])
+    expect(run.acted).toEqual([])
+    expect(run.opened).toEqual([])
+  } finally {
+    await run.app.dispose()
+  }
+})
+
+test("the demo's menu stand-in closes on Esc without acting or quitting", async () => {
+  const app = await testRender(() => <Demo />, { width: 60, height: 34 })
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    await app.mockMouse.moveTo(10, lineOf(app, "Diagnose reconnect"))
+    await app.renderOnce()
+    const before = app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")
+    await app.mockMouse.click(10, lineOf(app, "Diagnose reconnect"), MouseButtons.RIGHT)
+    await app.renderOnce()
+    expect(menuShown(app)).toEqual(["Mark read", "Park"])
+    app.mockInput.pressEscape()
+    // The terminal parser waits briefly to tell a lone Esc from an escape sequence.
+    await Bun.sleep(100)
+    await app.renderOnce()
+    await app.renderOnce()
+    expect(menuShown(app)).toEqual([])
+    expect(app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")).toBe(before)
+    expect(app.renderer.isDestroyed).toBe(false)
   } finally {
     await app.dispose()
   }

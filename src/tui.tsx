@@ -472,7 +472,12 @@ export default Plugin.define({
             })
             .then(closed),
       )
-    function panel(focused: () => boolean, surface: () => "panel" | "fullscreen" = () => "fullscreen") {
+    function panel(
+      focused: () => boolean,
+      surface: () => "panel" | "fullscreen" = () => "fullscreen",
+      /** The host's focus function for a side panel; a fullscreen switchboard always has focus. */
+      focus?: () => void,
+    ) {
       // Built once per theme or surface change: rows read the palette on every update.
       const colors = createMemo(() => palette(ctx.theme, surface()))
       return (
@@ -533,6 +538,31 @@ export default Plugin.define({
                 ],
               }))
             }}
+            menuKeys={(menu) => {
+              // The host enables a side panel's keymap layers and modes only while the panel has focus, so an
+              // unfocused panel takes focus for the menu's lifetime (as OpenCode's diff viewer does for its file
+              // menu); otherwise the composer would take the menu's keys. Focus returns where it was when the
+              // menu closes. The cursor stays put: focusing reveals nothing.
+              if (!focused() && focus) {
+                focus()
+                // An unfocused side panel means the conversation pane had focus; the host's command returns it there.
+                onCleanup(() => ctx.keymap.dispatch("pane.focus.left"))
+              }
+              // As OpenCode's own right-click menus: the `menu` mode turns off the panel's and the host's base keys
+              // until the menu closes.
+              onCleanup(ctx.keymap.mode.push("menu"))
+              ctx.keymap.layer(() => ({
+                mode: "menu",
+                commands: [
+                  { bind: "escape,ctrl+c", run: menu.close },
+                  { bind: "return", run: menu.run },
+                  { bind: "down,j", run: () => menu.move(1) },
+                  { bind: "up,k", run: () => menu.move(-1) },
+                  // The keys each item shows also run it here.
+                  ...menu.items().map((item) => ({ bind: item.hint, run: item.run })),
+                ],
+              }))
+            }}
           />
         </ErrorBoundary>
       )
@@ -554,6 +584,7 @@ export default Plugin.define({
             return panel(
               () => input.focused,
               () => input.presentation,
+              input.focus,
             )
           })()}
         </Show>

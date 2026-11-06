@@ -12,7 +12,7 @@ function theme(base: RGBA, hovered: RGBA, dialog?: Theme): Theme {
       muted: color("#828bb8"),
       feedback: { error: { base: color("#ff757f") } },
     },
-    background: { base, action: { primary: { hovered } } },
+    background: { base, raised: { base: raised, high: color("#2f334d") }, action: { primary: { hovered } } },
     hue: { accent: { 200: color("#ff966c") }, interactive: { 200: color("#82aaff") } },
     surface: () => dialog ?? self,
   }
@@ -33,4 +33,17 @@ test("fullscreen keeps the base theme's surface and hover", () => {
   const colors = palette(main, "fullscreen")
   expect(colors.background).toEqual(main.background.base)
   expect(colors.hover).toEqual(main.background.action.primary.hovered)
+})
+
+test("the right-click menu takes the base theme's raised colors on either surface, and its row a distinct fill", () => {
+  for (const surface of ["panel", "fullscreen"] as const) {
+    const colors = palette(main, surface)
+    expect(colors.menu.background).toEqual(main.background.raised.base)
+    expect(colors.menu.selected).toEqual(main.background.raised.high)
+    expect(colors.menu.text).toEqual(main.text.base)
+    expect(colors.menu.hint).toEqual(main.text.muted)
+    expect(colors.target).not.toEqual(colors.hover)
+    expect(colors.target).not.toEqual(colors.background)
+    expect((colors.target as RGBA).a).toBe(1)
+  }
 })

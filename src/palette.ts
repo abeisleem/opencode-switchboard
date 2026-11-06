@@ -9,6 +9,7 @@ export type Theme = {
   text: { base: RGBA; muted: RGBA; feedback: { error: { base: RGBA } } }
   background: {
     base: RGBA
+    raised: { base: RGBA; high: RGBA }
     action: { primary: { hovered: RGBA } }
   }
   hue: { accent: Record<200, RGBA>; interactive: Record<200, RGBA> }
@@ -31,6 +32,15 @@ export function palette(theme: Theme, surface: "panel" | "fullscreen"): Palette 
     background: base,
     // The current row stays on the bare surface, even under the mouse.
     hover: flatten(tokens.background.action.primary.hovered),
+    // A right-clicked row takes a tint of the interactive hue, so it reads apart from the neutral hover fill.
+    target: tint(base, tokens.hue.interactive[200], 0.2),
+    // The menu floats over the whole app, so it takes the base theme's colors, as OpenCode's tab menu does.
+    menu: {
+      background: theme.background.raised.base,
+      selected: theme.background.raised.high,
+      text: theme.text.base,
+      hint: theme.text.muted,
+    },
     unread: tokens.hue.accent[200],
     attention: tokens.hue.accent[200],
     running: tokens.hue.interactive[200],

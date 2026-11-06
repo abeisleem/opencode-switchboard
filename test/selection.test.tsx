@@ -4,6 +4,7 @@ import { testRender } from "@opentui/solid"
 import { InboxPanel, type PanelProps } from "../src/panel"
 import { initialState, reduce, type Action, type Session, type State } from "../src/model"
 import { createSelectionMemory } from "../src/selection"
+import { DEMO_PALETTE } from "../src/demo"
 
 type Controls = Parameters<NonNullable<PanelProps["keys"]>>[0]
 
@@ -64,17 +65,7 @@ async function harness(input: { sessions: Session[]; state: State }, height = 28
           sessions={sessions()}
           loading={false}
           error=""
-          colors={{
-            text: "#c0caf5",
-            muted: "#737aa2",
-            detail: "#545c7e",
-            background: "#1f2335",
-            hover: "#292e42",
-            unread: "#ff9e64",
-            attention: "#ff9e64",
-            running: "#7aa2f7",
-            error: "#f7768e",
-          }}
+          colors={DEMO_PALETTE}
           act={dispatch}
           open={(session) => dispatch({ type: "visit", sessionID: session.id, observed: session.idle })}
           focused
