@@ -1,63 +1,367 @@
 import { expect, test } from "bun:test"
 import type { OpenCodeClient } from "@opencode/client"
-import { loadCatalog } from "../src/catalog"
-import { initialState } from "../src/model"
+import { loadCatalog, type RootCounts } from "../src/catalog"
+import { initialState, rows, type State } from "../src/model"
 
-/**
- * A client whose project has `total` root sessions. Like the server, it returns a cursor after every page but an
- * empty one, so a short last page is followed by an empty request unless the caller stops.
- */
-function client(total: number) {
-  const lists: unknown[] = []
-  const all = Array.from({ length: total }, (_, index) => ({
-    id: `s${index}`,
-    title: `Task ${index}`,
-    projectID: "work",
-    location: { directory: "/work" },
-    time: {},
-  }))
-  const fake = {
-    project: { list: async () => [{ id: "work", name: "Work", canonical: "/work" }] },
-    session: {
-      active: async () => ({}),
-      list: async (input: { cursor?: string; limit: number }) => {
-        lists.push(input)
-        const start = input.cursor ? Number(input.cursor) : 0
-        const data = all.slice(start, start + input.limit)
-        return { data, cursor: { next: data.length ? String(start + input.limit) : null } }
-      },
-    },
-    permission: { request: { list: async () => ({ data: [] }) } },
-    form: { list: async () => ({ data: [] }) },
-  }
-  return { client: fake as unknown as OpenCodeClient, lists }
+type Fake = {
+  id: string
+  title?: string
+  projectID: string
+  parentID?: string
+  location: { directory: string }
+  outcome?: "succeeded" | "failed" | "interrupted"
+  time: { idle?: number; viewed?: number; archived?: number; updated?: number }
 }
 
-function state() {
+/**
+ * A fake server holding `sessions`. Like the real one, its list returns a cursor after every page but an empty one,
+ * filters by project or exact directory, and orders by last update, newest first. It records every request and
+ * the most requests ever in flight at once.
+ */
+function server(
+  sessions: Fake[],
+  options: {
+    projects?: { id: string; name: string; canonical: string }[]
+    active?: string[]
+    approvals?: Record<string, string[]>
+    questions?: Record<string, string[]>
+  } = {},
+) {
+  const calls: { method: string; input: unknown }[] = []
+  let inFlight = 0
+  let maxInFlight = 0
+  async function call<T>(method: string, input: unknown, answer: () => T): Promise<T> {
+    calls.push({ method, input })
+    inFlight++
+    maxInFlight = Math.max(maxInFlight, inFlight)
+    // Let every request started in the same turn overlap, as on a real connection.
+    await new Promise((resolve) => setTimeout(resolve, 1))
+    inFlight--
+    return answer()
+  }
+  const ordered = sessions.toSorted((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+  const filters = new Map<string, Fake[]>()
+  const fake = {
+    project: { list: () => call("project.list", undefined, () => options.projects ?? []) },
+    session: {
+      active: () =>
+        call("session.active", undefined, () =>
+          Object.fromEntries((options.active ?? []).map((id) => [id, { type: "running" }])),
+        ),
+      get: (input: { sessionID: string }) =>
+        call("session.get", input, () => {
+          const session = sessions.find((session) => session.id === input.sessionID)
+          if (!session) throw Object.assign(new Error("not found"), { _tag: "SessionNotFoundError" })
+          return session
+        }),
+      list: (input: {
+        cursor?: string
+        limit: number
+        project?: string
+        directory?: string
+        parentID?: null
+        archived?: false
+      }) =>
+        call("session.list", input, () => {
+          const key = input.cursor?.split("@")[0] ?? JSON.stringify(input)
+          const start = input.cursor ? Number(input.cursor.split("@")[1]) : 0
+          if (!input.cursor)
+            filters.set(
+              key,
+              ordered.filter(
+                (session) =>
+                  !session.parentID &&
+                  !session.time.archived &&
+                  (input.project !== undefined
+                    ? session.projectID === input.project
+                    : session.location.directory === input.directory),
+              ),
+            )
+          const data = filters.get(key)!.slice(start, start + input.limit)
+          return { data, cursor: { next: data.length ? `${key}@${start + input.limit}` : null } }
+        }),
+    },
+    permission: {
+      request: {
+        list: (input: { location: { directory: string } }) =>
+          call("permission.request.list", input, () => ({
+            data: (options.approvals?.[input.location.directory] ?? []).map((sessionID) => ({ sessionID })),
+          })),
+      },
+    },
+    form: {
+      list: (input: { location: { directory: string } }) =>
+        call("form.list", input, () => ({
+          data: (options.questions?.[input.location.directory] ?? []).map((sessionID) => ({ sessionID })),
+        })),
+    },
+  }
+  return {
+    client: fake as unknown as OpenCodeClient,
+    calls,
+    count: (method: string) => calls.filter((call) => call.method === method).length,
+    maxInFlight: () => maxInFlight,
+    reset() {
+      calls.length = 0
+      maxInFlight = 0
+    },
+  }
+}
+
+/** `total` root sessions of one project, `<project>-0` the most recently updated. */
+function roots(total: number, project = "work", directory = "/work"): Fake[] {
+  return Array.from({ length: total }, (_, index) => ({
+    id: `${project}-${index}`,
+    title: `Task ${index}`,
+    projectID: project,
+    location: { directory },
+    time: { updated: total - index },
+  }))
+}
+
+function tracking(sessions: Record<string, string[]>): State {
   const state = initialState()
-  state.projects.work = { name: "Work", open: true, sessions: ["s0"] }
+  for (const [key, members] of Object.entries(sessions))
+    state.projects[key] = { name: key, open: true, sessions: members }
   return state
 }
 
+const WORK = [{ id: "work", name: "Work", canonical: "/work" }]
+
 test("a short page is a project's last: no request follows it", async () => {
-  const { client: fake, lists } = client(30)
-  const result = await loadCatalog(fake, state())
-  expect(lists).toHaveLength(1)
-  expect(result.sessions).toHaveLength(30)
+  const fake = server(roots(30), { projects: WORK })
+  const result = await loadCatalog(fake.client, tracking({ work: ["work-0"] }))
+  expect(fake.count("session.list")).toBe(1)
+  expect(fake.count("session.get")).toBe(0)
+  expect(result.sessions.map((session) => session.id)).toContain("work-0")
 })
 
-test("a full page still fetches the next one", async () => {
-  const { client: fake, lists } = client(150)
-  const result = await loadCatalog(fake, state())
-  expect(lists).toEqual([
+test("an unknown project lists one page, then reads the tracked roots it did not show", async () => {
+  const fake = server(roots(150), { projects: WORK })
+  const counts: RootCounts = new Map()
+  const result = await loadCatalog(
+    fake.client,
+    tracking({ work: ["work-0", "work-120"] }),
+    undefined,
+    null,
+    counts,
+  )
+  expect(fake.calls.filter((call) => call.method === "session.list").map((call) => call.input)).toEqual([
     { project: "work", parentID: null, archived: false, limit: 100 },
-    { cursor: "100", limit: 100 },
   ])
-  expect(result.sessions).toHaveLength(150)
+  expect(fake.calls.filter((call) => call.method === "session.get").map((call) => call.input)).toEqual([
+    { sessionID: "work-120" },
+  ])
+  expect(counts.get("work")).toBe(101)
+  expect(result.sessions.map((session) => session.id)).toContain("work-120")
 })
 
-test("a project of exactly one full page costs one empty request", async () => {
-  const { client: fake, lists } = client(100)
-  expect((await loadCatalog(fake, state())).sessions).toHaveLength(100)
-  expect(lists).toHaveLength(2)
+test("a project of exactly one full page costs no empty request", async () => {
+  const fake = server(roots(100), { projects: WORK })
+  await loadCatalog(fake.client, tracking({ work: ["work-0"] }))
+  expect(fake.count("session.list")).toBe(1)
+})
+
+test("a project with few of its roots tracked reads each tracked root, not its list", async () => {
+  const fake = server(roots(300), { projects: WORK })
+  const counts: RootCounts = new Map()
+  const state = tracking({ work: ["work-0", "work-150", "work-299"] })
+  await loadCatalog(fake.client, state, undefined, null, counts)
+  fake.reset()
+  const result = await loadCatalog(fake.client, state, undefined, null, counts)
+  expect(fake.count("session.list")).toBe(0)
+  expect(fake.count("session.get")).toBe(3)
+  expect(
+    rows(result.sessions, state).flatMap((row) => (row.kind === "session" ? [row.session.id] : [])),
+  ).toEqual(["work-0", "work-150", "work-299"])
+})
+
+test("a listing that stops early is not repeated: the next refresh reads each tracked root", async () => {
+  const fake = server(roots(1000), { projects: WORK })
+  const counts: RootCounts = new Map()
+  const state = tracking({ work: Array.from({ length: 50 }, (_, index) => `work-${index + 900}`) })
+  await loadCatalog(fake.client, state, undefined, null, counts)
+  expect([fake.count("session.list"), fake.count("session.get")]).toEqual([1, 50])
+  fake.reset()
+  await loadCatalog(fake.client, state, undefined, null, counts)
+  expect([fake.count("session.list"), fake.count("session.get")]).toEqual([0, 50])
+})
+
+test("a project with most of its roots tracked lists them in full", async () => {
+  const fake = server(roots(150), { projects: WORK })
+  const state = tracking({ work: Array.from({ length: 80 }, (_, index) => `work-${index}`) })
+  const counts: RootCounts = new Map([["work", 150]])
+  await loadCatalog(fake.client, state, undefined, null, counts)
+  expect(fake.count("session.list")).toBe(2)
+  expect(fake.count("session.get")).toBe(0)
+  expect(counts.get("work")).toBe(150)
+})
+
+test("projects load in parallel, and never more than 8 requests are in flight", async () => {
+  const names = ["a", "b", "c"]
+  const sessions = names.flatMap((project) => roots(300, project, `/${project}`))
+  const projects = names.map((id) => ({ id, name: id, canonical: `/${id}` }))
+  const state = tracking(
+    Object.fromEntries(names.map((project) => [project, roots(20, project).map((session) => session.id)])),
+  )
+  const counts: RootCounts = new Map(names.map((project) => [project, 300]))
+  const fake = server(sessions, { projects })
+  const result = await loadCatalog(fake.client, state, undefined, null, counts)
+  expect(fake.count("session.get")).toBe(60)
+  expect(fake.maxInFlight()).toBe(8)
+  expect(rows(result.sessions, state).filter((row) => row.kind === "session")).toHaveLength(60)
+})
+
+test("a tracked session that no longer exists is left out, as a listing leaves it out", async () => {
+  const fake = server(roots(300), { projects: WORK })
+  const state = tracking({ work: ["work-0", "deleted"] })
+  const result = await loadCatalog(fake.client, state, undefined, null, new Map([["work", 300]]))
+  expect(result.sessions.map((session) => session.id)).toEqual(["work-0"])
+  expect(result.issues).toEqual([])
+})
+
+test("an unchanged catalog compares equal however its reads finish", async () => {
+  const fake = server(roots(300), { projects: WORK })
+  const state = tracking({ work: ["work-5", "work-1", "work-9"] })
+  const counts: RootCounts = new Map([["work", 300]])
+  const first = await loadCatalog(fake.client, state, undefined, null, counts)
+  const second = await loadCatalog(fake.client, state, undefined, null, counts)
+  expect(JSON.stringify(second.sessions)).toBe(JSON.stringify(first.sessions))
+})
+
+/**
+ * A representative state: two open projects, one with a worktree, plus a directory project; archived, deleted,
+ * and subagent sessions; running subagents of a tracked and an untracked root; an approval and a question; and a
+ * current session not yet tracked. The expected rows are what the catalog produced when it listed every root
+ * (checked against the implementation before 0.2.2).
+ */
+function representative() {
+  const sessions: Fake[] = [
+    ...roots(40, "work", "/work"),
+    {
+      id: "tree-1",
+      title: "Worktree task",
+      projectID: "work",
+      location: { directory: "/work-tree" },
+      time: {},
+    },
+    {
+      id: "done",
+      title: "Archived",
+      projectID: "work",
+      location: { directory: "/work" },
+      time: { archived: 1 },
+    },
+    { id: "child-1", projectID: "work", parentID: "work-3", location: { directory: "/work" }, time: {} },
+    { id: "child-2", projectID: "work", parentID: "work-39", location: { directory: "/work" }, time: {} },
+    { id: "child-3", projectID: "work", parentID: "tree-1", location: { directory: "/work-tree" }, time: {} },
+    ...roots(5, "play", "/play").map((session, index) => ({
+      ...session,
+      outcome: (["failed", "interrupted", "succeeded", undefined, undefined] as const)[index],
+      time: { ...session.time, idle: 10 + index, viewed: index },
+    })),
+    { id: "scratch-1", title: "", projectID: "global", location: { directory: "/scratch" }, time: {} },
+    {
+      id: "scratch-2",
+      title: "Untracked",
+      projectID: "global",
+      location: { directory: "/scratch" },
+      time: {},
+    },
+    { id: "other-1", title: "Shown here", projectID: "other", location: { directory: "/other" }, time: {} },
+  ]
+  const state = tracking({
+    work: ["work-3", "tree-1", "work-30", "done", "deleted"],
+    play: ["play-0", "play-1", "play-2", "play-3"],
+    "/scratch": ["scratch-1"],
+  })
+  state.projects.closed = { name: "closed", open: false, sessions: ["other-1"] }
+  return {
+    state,
+    fake: server(sessions, {
+      projects: [
+        { id: "work", name: "Work", canonical: "/work" },
+        { id: "play", name: "", canonical: "/play" },
+        { id: "other", name: "Other", canonical: "/other" },
+      ],
+      active: ["child-1", "child-2"],
+      approvals: { "/work-tree": ["child-3"] },
+      questions: { "/play": ["play-2"] },
+    }),
+  }
+}
+
+const EXPECTED_ROWS = [
+  // [id, title, project name, detail, status, running, idle, viewed]
+  ["scratch-1", "Untitled session", "scratch", "main", "Idle", false, 0, 0],
+  ["play-0", "Task 0", "play", "main", "Error", false, 10, 0],
+  ["play-1", "Task 1", "play", "main", "Interrupted", false, 11, 1],
+  ["play-2", "Task 2", "play", "main", "Question", false, 12, 2],
+  ["play-3", "Task 3", "play", "main", "Idle", false, 13, 3],
+  ["work-3", "Task 3", "Work", "main", "Running", true, 0, 0],
+  ["tree-1", "Worktree task", "Work", "/work-tree", "Approval", false, 0, 0],
+  ["work-30", "Task 30", "Work", "main", "Idle", false, 0, 0],
+]
+
+function rowValues(sessions: Awaited<ReturnType<typeof loadCatalog>>["sessions"], state: State) {
+  return rows(sessions, state).flatMap((row) =>
+    row.kind === "session"
+      ? [
+          [
+            row.session.id,
+            row.session.title,
+            row.session.projectName,
+            row.session.detail,
+            row.session.status,
+            row.session.running,
+            row.session.idle,
+            row.session.viewed,
+          ],
+        ]
+      : [],
+  )
+}
+
+/** Root counts that make every project of `representative` read its tracked sessions one by one. */
+const many = (): RootCounts =>
+  new Map([
+    ["work", 1000],
+    ["play", 1000],
+    ["/scratch", 1000],
+  ])
+
+test("rows are the same whether the catalog lists projects or reads tracked sessions", async () => {
+  for (const counts of [new Map(), many()] as RootCounts[]) {
+    const { state, fake } = representative()
+    const result = await loadCatalog(fake.client, state, undefined, "other-1", counts)
+    expect(rowValues(result.sessions, state)).toEqual(EXPECTED_ROWS)
+    expect(
+      rows(result.sessions, state)
+        .filter((row) => row.kind === "heading")
+        .map((row) => row.title),
+    ).toEqual(["scratch", "play", "Work"])
+    // The session this TUI shows loads before its project lists it.
+    expect(result.sessions.some((session) => session.id === "other-1")).toBe(true)
+    // Attention reads only the directories of rows.
+    expect(
+      fake.calls
+        .filter((call) => call.method === "form.list")
+        .map((call) => (call.input as { location: { directory: string } }).location.directory)
+        .toSorted(),
+    ).toEqual(["/play", "/scratch", "/work", "/work-tree"])
+    expect(result.issues).toEqual([])
+    expect(result.warning).toBe("")
+  }
+})
+
+test("reading tracked sessions skips the untracked roots: no lists, one read per session needed", async () => {
+  const listing = representative()
+  await loadCatalog(listing.fake.client, listing.state, undefined, "other-1")
+  expect(listing.fake.count("session.list")).toBe(3)
+  const reading = representative()
+  await loadCatalog(reading.fake.client, reading.state, undefined, "other-1", many())
+  expect(reading.fake.count("session.list")).toBe(0)
+  // work 5 tracked (one archived, one deleted), play 4, scratch 1, two running subagents, an approval's subagent,
+  // the untracked root of a running subagent, and the current session.
+  expect(reading.fake.count("session.get")).toBe(15)
 })
