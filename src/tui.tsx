@@ -424,6 +424,51 @@ export default Plugin.define({
       reveal(`heading:${key}`)
     }
     /**
+     * A project's main directory: a directory key is one already; otherwise the project's canonical directory,
+     * from OpenCode's synced projects, else a main-checkout row in the catalog, else the server's project list.
+     * Never a worktree.
+     */
+    async function projectDirectory(key: string) {
+      if (key.startsWith("/")) return key
+      return (
+        ctx.data.project.get(key)?.canonical ??
+        sessions().find((session) => session.project === key && session.detail === "main")?.directory ??
+        (await ctx.client.project.list()).find((project) => project.id === key)?.canonical
+      )
+    }
+    /**
+     * Opens a project's new-session screen, as picking the project in Ctrl+O does: no session exists until the first
+     * message, which the route and `session.created` handling then admit under that project. Not `showPanel`: on
+     * the new-session screen that would cover the composer with the fullscreen switchboard. The home screen's
+     * composer takes focus as it mounts, and the location effect below puts the cursor on the project's heading.
+     */
+    async function newSession(key: string) {
+      try {
+        const directory = await projectDirectory(key)
+        if (stopped) return
+        if (!directory) {
+          setError(`No directory found for ${state().projects[key]?.name || key}`)
+          return
+        }
+        // This home screen is a project choice: let the location effect reveal it, even after an earlier
+        // navigation home that it never saw land.
+        navigatedHome = false
+        openHome(directory)
+      } catch (cause) {
+        report(cause)
+      }
+    }
+    /**
+     * The home route with a location. The plugin API's `Route` type has no `location` on home
+     * (https://github.com/anomalyco/opencode/issues/62322), but the host passes the destination through to its
+     * router and the home route applies `route.location`. Drop the cast once the type has it.
+     */
+    function openHome(directory: string) {
+      ctx.ui.router.navigate({ type: "home", location: { directory } } as Parameters<
+        typeof ctx.ui.router.navigate
+      >[0])
+    }
+    /**
      * Opens one of our dialogs without leaving OpenCode a stale focus target. OpenCode 2.2.5 remembers what had
      * focus when a dialog opens and refocuses it on every later `dialog.clear()`, even with no dialog open. Its
      * Select terminal command (ctrl+x ↓) clears dialogs before focusing the composer, so focus snapped back to the
@@ -514,6 +559,7 @@ export default Plugin.define({
                 showPanel()
               } else navigate(session.id) // The route effect visits it.
             }}
+            newSession={(project) => void newSession(project)}
             close={close}
             help={() => void help()}
             diagnostics={() => void diagnostics()}
@@ -533,6 +579,7 @@ export default Plugin.define({
                   { bind: "u", run: actions.unread },
                   { bind: "p", run: actions.park },
                   { bind: "x", run: actions.remove },
+                  { bind: "n", run: actions.newSession },
                   { bind: "?,shift+?", run: help },
                   { bind: "escape", run: close },
                 ],

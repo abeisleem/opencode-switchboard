@@ -10,6 +10,7 @@ import {
 import { useRenderer } from "@opentui/solid"
 import {
   rowDetail,
+  rowProject,
   rows,
   section,
   unread,
@@ -188,6 +189,11 @@ export type PanelProps = {
   current: string | null
   /** Open a session; the host then focuses its conversation. */
   open: (session: Session) => void
+  /**
+   * Opens the new-session screen of a project, by its key. Without it, `n` does nothing and project headings have
+   * no menu.
+   */
+  newSession?: (project: string) => void
   close: () => void
   help: () => void
   diagnostics: () => void
@@ -201,6 +207,8 @@ export type PanelProps = {
     park: () => void
     /** Folds or unfolds the highlighted heading; does nothing on a session row. */
     fold: (folded: boolean) => void
+    /** Opens the new-session screen of the highlighted row's project. */
+    newSession: () => void
     remove: () => void
     /** Moves the cursor to a row key (see rowKey). */
     reveal: (key: string) => void
@@ -347,6 +355,10 @@ export function InboxPanel(props: PanelProps) {
     const placement: Placement = section(row.session, props.state) === "parked" ? "active" : "parked"
     props.act({ type: "place", sessionID: row.session.id, placement })
   }
+  function newSession(row: Row | undefined) {
+    const project = row && rowProject(row)
+    if (project !== undefined) props.newSession?.(project)
+  }
   /** The right-click menu: the row it acts on (by key) and where the pointer was. */
   const [menu, setMenu] = createSignal<{ key: string; x: number; y: number }>()
   /** Set when the menu closes, until the pointer moves; see `hover`. */
@@ -355,8 +367,15 @@ export function InboxPanel(props: PanelProps) {
     pointerStill = true
     setMenu(undefined)
   }
-  /** A session's menu items, labeled with what each will do. Headings have no menu. */
-  function menuItems(row: Extract<Row, { kind: "session" }>): MenuItem[] {
+  /**
+   * A row's menu items, labeled with what each will do: a session's two, or New session on a project heading.
+   * A Parked heading has none.
+   */
+  function menuItems(row: Row): MenuItem[] {
+    if (row.kind === "heading")
+      return row.depth === 0 && props.newSession
+        ? [{ label: "New session", hint: "n", run: () => newSession(row) }]
+        : []
     return [
       {
         label: unread(row.session, props.state) ? "Mark read" : "Mark unread",
@@ -374,7 +393,8 @@ export function InboxPanel(props: PanelProps) {
   const menuTarget = createMemo(() => {
     const open = menu()
     const row = open && entries().get(open.key)?.row
-    return open && row?.kind === "session" ? { ...open, items: menuItems(row) } : undefined
+    const items = row ? menuItems(row) : []
+    return open && items.length ? { ...open, items } : undefined
   })
   // Forget a closed menu's row, so it cannot reopen if that row comes back.
   createEffect(() => {
@@ -391,6 +411,7 @@ export function InboxPanel(props: PanelProps) {
       // Always sent, even when the heading already looks that way: the shown state can lag behind the server.
       if (row?.kind === "heading") props.act({ type: "fold", key: row.key, folded })
     },
+    newSession: () => newSession(current()),
     reveal: (key) => {
       setRequested({ key })
       remember()
@@ -517,13 +538,13 @@ export function InboxPanel(props: PanelProps) {
                       if (hovered() === key) setHovered(undefined)
                     }}
                     onMouseDown={(event) => {
-                      // A right-click opens a session's menu; on a heading it does nothing. It never moves the
-                      // cursor or opens anything, and the host never sees it: focus stays where it is, and
-                      // OpenCode does not act on it.
+                      // A right-click opens the row's menu, if it has one (a Parked heading does not). It never
+                      // moves the cursor or opens anything, and the host never sees it: focus stays where it is,
+                      // and OpenCode does not act on it.
                       if (event.button === MouseButton.RIGHT) {
                         event.preventDefault()
                         event.stopPropagation()
-                        if (key.startsWith("session:")) setMenu({ key, x: event.x, y: event.y })
+                        if (menuItems(entry().row).length) setMenu({ key, x: event.x, y: event.y })
                         return
                       }
                       // The host focuses the panel on mouse down; an unfocused click acts without stealing focus.

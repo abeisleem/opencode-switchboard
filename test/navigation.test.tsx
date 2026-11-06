@@ -53,18 +53,31 @@ async function harness(
     fail?: unknown
     /** Render the side panel beside the session, with host focus, instead of the fullscreen route. */
     sidePanel?: boolean
+    /** OpenCode's synced projects, as `ctx.data.project.get` returns them; none by default. */
+    synced?: Record<string, { canonical: string }>
+    /** The server's project list; by default "work" at /work and "other" at /other. */
+    projects?: { id: string; name: string; canonical: string }[]
+    /** The sessions belong to the global project, so their project is keyed by their directory, /work. */
+    global?: boolean
+    /** The server lists no sessions, so the catalog has no rows. */
+    unlisted?: boolean
   } = {},
 ) {
   // What the switchboard's RPC calls reject with; a test can change it while the TUI runs.
   const failures: { snapshot?: unknown; act?: unknown } = { snapshot: options.fail, act: options.fail }
   let saved = initialState()
   saved.revision = 1
-  saved.projects.work = { name: "Work", open: true, sessions: options.members ?? ["a", "b"] }
+  saved.projects[options.global ? "/work" : "work"] = {
+    name: "Work",
+    open: true,
+    sessions: options.members ?? ["a", "b"],
+  }
   if (options.other) saved.projects.other = { name: "Other", open: true, sessions: options.other }
+  let sessionCreates = 0
   const sessions = ["a", "b", "c"].map((id) => ({
     id,
     title: `Task ${id}`,
-    projectID: options.other?.includes(id) ? "other" : "work",
+    projectID: options.other?.includes(id) ? "other" : options.global ? "global" : "work",
     location: { directory: "/work" },
     time: {},
   }))
@@ -166,18 +179,24 @@ async function harness(
         },
       }),
       project: {
-        list: async () => [
-          { id: "work", name: "Work", canonical: "/work" },
-          { id: "other", name: "Other", canonical: "/other" },
-        ],
+        list: async () =>
+          options.projects ?? [
+            { id: "work", name: "Work", canonical: "/work" },
+            { id: "other", name: "Other", canonical: "/other" },
+          ],
       },
       session: {
         get,
+        // The switchboard never creates a session up front; see `newSession` in src/tui.tsx.
+        create: async () => {
+          sessionCreates++
+          throw new Error("unexpected session.create")
+        },
         active: async () => {
           activeReads++
           return options.active?.() ?? {}
         },
-        list: async () => ({ data: sessions, cursor: {} }),
+        list: async () => ({ data: options.unlisted ? [] : sessions, cursor: {} }),
       },
       permission: {
         request: {
@@ -198,6 +217,7 @@ async function harness(
         form: { list: () => undefined },
         ...options.live,
       },
+      project: { get: (id: string) => options.synced?.[id] },
     },
     storage: {
       memory: (_key: string, input: { initial: unknown }) => [input.initial, noop],
@@ -336,6 +356,8 @@ async function harness(
     activeReads: () => activeReads,
     /** `snapshot` RPCs this TUI sent. */
     snapshots: () => snapshots,
+    /** `session.create` calls this TUI made. */
+    sessionCreates: () => sessionCreates,
     dialogs,
     open: () => command("opencode-switchboard.open").run(),
     close: () => command("opencode-switchboard.close-current"),
@@ -1305,6 +1327,175 @@ test("a right-click menu in an already focused side panel leaves focus in the pa
     expect(run.panelFocused()).toBe(true)
     expect(focus.events).toEqual([])
     expect(run.dispatched.length).toBe(dispatched)
+  } finally {
+    await run.dispose()
+  }
+})
+
+const HOME_AT_WORK = { type: "home", location: { directory: "/canon/work" } }
+
+test("n opens the new-session screen of the cursor's project from its heading, rows, and Parked fold", async () => {
+  const run = await harness({ members: ["a", "b", "c"], synced: { work: { canonical: "/canon/work" } } })
+  try {
+    await run.open()
+    await run.frame()
+    await run.rpc.act({ type: "place", sessionID: "c", placement: "parked" })
+    await run.frame()
+    // From the current row, b: the project heading, a session row, the Parked heading, and a parked session.
+    for (const [label, moves] of [
+      ["project heading", ["up,k", "up,k"]],
+      ["session row", ["up,k"]],
+      ["Parked heading", ["down,j"]],
+      ["parked session", ["down,j", "down,j"]],
+    ] as const) {
+      run.navigate({ type: "session", sessionID: "b" })
+      await run.frame()
+      await run.open()
+      await run.frame()
+      for (const move of moves) await run.key(move)
+      run.dispatched.length = 0
+      await run.key("n")
+      expect(await until(() => run.route().type === "home"), label).toBe(true)
+      // The project's main directory, never a session's worktree; no session exists until the first message.
+      expect(run.route(), label).toEqual(HOME_AT_WORK as Route)
+      await Bun.sleep(20)
+      // Nothing covers the new-session screen's composer or sends focus back to a conversation no longer shown.
+      expect(run.route(), label).toEqual(HOME_AT_WORK as Route)
+      expect(run.dispatched, label).not.toContain(FOCUS_CONVERSATION)
+    }
+    expect(run.sessionCreates()).toBe(0)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("n from the fullscreen switchboard over the new-session screen opens the project's screen, not the switchboard", async () => {
+  const run = await harness({ route: { type: "home" }, synced: { work: { canonical: "/canon/work" } } })
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.route().type).toBe("plugin")
+    await run.key("down,j")
+    await run.key("n")
+    expect(await until(() => run.route().type === "home")).toBe(true)
+    await Bun.sleep(20)
+    expect(run.route()).toEqual(HOME_AT_WORK as Route)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("without a synced project, n uses the project's main checkout from the catalog", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    await run.key("n")
+    expect(await until(() => run.route().type === "home")).toBe(true)
+    expect(run.route()).toEqual({ type: "home", location: { directory: "/work" } } as Route)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a project known only to the server's project list opens at its canonical directory", async () => {
+  // Its rows are a worktree, /work, of /listed/work: no main-checkout row to read the directory from.
+  const run = await harness({ projects: [{ id: "work", name: "Work", canonical: "/listed/work" }] })
+  try {
+    await run.open()
+    await run.frame()
+    await run.key("n")
+    expect(await until(() => run.route().type === "home")).toBe(true)
+    expect(run.route()).toEqual({ type: "home", location: { directory: "/listed/work" } } as Route)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a directory-keyed project opens its new-session screen at its key", async () => {
+  const run = await harness({ global: true, synced: { global: { canonical: "/" } } })
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.saved().projects["/work"]?.open).toBe(true)
+    await run.key("up,k")
+    await run.key("up,k")
+    await run.key("n")
+    expect(await until(() => run.route().type === "home")).toBe(true)
+    expect(run.route()).toEqual({ type: "home", location: { directory: "/work" } } as Route)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a project with no known directory says so in the footer and stays put", async () => {
+  // No synced project, no catalog row to read a directory from, and no listed project.
+  const run = await harness({ route: { type: "home" }, members: [], projects: [], unlisted: true })
+  try {
+    await run.open()
+    await run.frame()
+    const route = run.route()
+    await run.key("n")
+    expect(await until(() => run.app.captureCharFrame().includes("! No directory found for Work"))).toBe(true)
+    expect(run.route()).toEqual(route)
+    expect(run.sessionCreates()).toBe(0)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("from the composer, a project heading's menu offers New session, which opens the project's screen", async () => {
+  const focus = fakeFocus()
+  const run = await harness({ focus, sidePanel: true, synced: { work: { canonical: "/canon/work" } } })
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.panelFocused()).toBe(false)
+    const screen = () => run.app.captureCharFrame()
+    const y = screen()
+      .split("\n")
+      .findIndex((line) => line.includes("Work/"))
+    await run.app.mockMouse.click(10, y, MouseButtons.RIGHT)
+    await run.frame()
+    // One item, with the panel key that does the same.
+    expect(screen()).toMatch(/New session +n/)
+    expect(screen()).not.toMatch(/Mark (un)?read|Park/)
+    expect(run.panelFocused()).toBe(true)
+    expect(run.modes).toEqual(["menu"])
+    expect(run.modeCommands("menu").map((command) => command.bind)).toContain("n")
+    await menuCommand(run, "n").run()
+    expect(await until(() => run.route().type === "home")).toBe(true)
+    expect(run.route()).toEqual(HOME_AT_WORK as Route)
+    expect(run.modes).toEqual([])
+    expect(run.sessionCreates()).toBe(0)
+    // Closing the menu returned focus to the conversation before it left; the home screen's composer then takes it.
+    await Bun.sleep(20)
+    expect(run.route()).toEqual(HOME_AT_WORK as Route)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("a fullscreen project heading's New session item runs on a click, and the Parked heading has no menu", async () => {
+  const run = await harness({ members: ["a", "b", "c"], synced: { work: { canonical: "/canon/work" } } })
+  try {
+    await run.open()
+    await run.frame()
+    await run.rpc.act({ type: "place", sessionID: "c", placement: "parked" })
+    await run.frame()
+    const lines = () => run.app.captureCharFrame().split("\n")
+    const rowOf = (text: string) => lines().findIndex((line) => line.includes(text))
+    await run.app.mockMouse.click(10, rowOf("Parked"), MouseButtons.RIGHT)
+    await run.frame()
+    expect(run.app.captureCharFrame()).not.toContain("New session")
+    expect(run.modes).toEqual([])
+    await run.app.mockMouse.click(10, rowOf("Work/"), MouseButtons.RIGHT)
+    await run.frame()
+    const item = rowOf("New session")
+    expect(item).toBeGreaterThanOrEqual(0)
+    await run.app.mockMouse.click(lines()[item]!.indexOf("New session"), item)
+    expect(await until(() => run.route().type === "home")).toBe(true)
+    expect(run.route()).toEqual(HOME_AT_WORK as Route)
   } finally {
     await run.dispose()
   }

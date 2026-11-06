@@ -157,6 +157,7 @@ Unread is independent of placement: mark a session unread to come back to it, wh
 | `u`                                     | Toggle read/unread                                    |
 | `p`                                     | Park or unpark                                        |
 | `x`                                     | Close session or project (never deletes it)           |
+| `n`                                     | New session in the cursor's project                   |
 | `<leader>w` (Ctrl+X, then W by default) | Close the current conversation's row from either pane |
 | `?`                                     | Help                                                  |
 | Esc                                     | Close the panel                                       |
@@ -168,10 +169,16 @@ With the mouse:
 - Right-click a session for **Mark read**/**Mark unread** and **Park**/**Unpark**, then click an item or press
   its key. The menu acts on the session you right-clicked and leaves the cursor where it is. Focus returns to
   where it was, such as the message box, when the menu closes.
+- Right-click a project heading for **New session**.
 - Click **? help** at the bottom for the key reference.
 
 Opening a session, with Enter or a click, moves focus to its conversation so you can type right away. Press
 `<leader>i` (**Ctrl+X, then I** by default) to return to the panel.
+
+`n` opens the new-session screen of the project under the cursor, whether the cursor is on its heading, one of
+its sessions, or its Parked section, as picking the project with Ctrl+O does. It uses the project's main
+directory, not a worktree, and focus moves to the message box. No session exists until you send the first
+message; the new session then appears under that project.
 
 `<leader>w` (**Ctrl+X, then W** by default) closes the conversation you are viewing, independently of the panel
 cursor, and returns to the session you viewed most recently in this TUI that is still open. It is active while
