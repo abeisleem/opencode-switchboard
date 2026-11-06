@@ -171,6 +171,8 @@ With the mouse:
   where it was, such as the message box, when the menu closes.
 - Right-click a project heading for **New session**.
 - Click **? help** at the bottom for the key reference.
+- Click **Not listed** at the bottom to add back the conversation you are viewing, after another TUI closed its
+  row (see [How state is shared](#how-state-is-shared)).
 
 Opening a session, with Enter or a click, moves focus to its conversation so you can type right away. Press
 `<leader>i` (**Ctrl+X, then I** by default) to return to the panel.
@@ -198,6 +200,11 @@ Each TUI keeps its own place: the conversation it shows, the sessions it showed 
 cursor and scroll position. Opening a session in one TUI does not switch the others. Closing a session's row
 in one TUI removes the row everywhere, but only the TUI that closed it moves to another session; the others
 keep the conversation open. A TUI forgets its recent sessions when it exits.
+
+While the conversation a TUI shows has no row, its panel footer says `Not listed`, with the key that adds it
+back: `Not listed · ctrl+x i add` (your `<leader>i`). Click it, or press that key, to list the conversation in
+its project again. Picking the same conversation again in OpenCode's session list does not add it, because
+OpenCode does not tell plugins about a pick that keeps the route.
 
 OpenCode's desktop and mobile apps do not show the panel. Viewing a finished session there still counts as
 reading it, but does not clear a session you marked unread.

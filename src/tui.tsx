@@ -19,7 +19,7 @@ import { actionErrorText, errorDetails, errorText, isTransportError, RECONNECTIN
 import { initialState, parkedKey, projectOf, type Action, type Session, type State } from "./model"
 import { liveSession, loadCatalog } from "./catalog"
 import type { Attention } from "./attention"
-import { HelpDialog, helpShortcuts } from "./help"
+import { HELP_COMMANDS, HelpDialog, helpShortcuts } from "./help"
 import { InboxPanel, type PanelProps } from "./panel"
 import { palette } from "./palette"
 import { createSelectionMemory, createSessionHistory, fallbackSession, recordShown } from "./selection"
@@ -103,6 +103,19 @@ export default Plugin.define({
     // Per-machine and durable, so the native-tabs hint shows once, not on every open.
     const [hints, setHints] = ctx.storage.store("hints", { initial: { nativeTabs: false } })
     const [loading, setLoading] = createSignal(false)
+    // Whether a server state has arrived since this TUI started; until then every conversation looks unlisted.
+    const [synced, setSynced] = createSignal(false)
+    // Opens of the switchboard still running: each lists the conversation shown once its refresh lands.
+    const [opening, setOpening] = createSignal(0)
+    // Visits on their way, by the route's session ID. A draft session keeps its entry until `session.created`
+    // visits it again.
+    const [arriving, setArriving] = createSignal<ReadonlySet<string>>(new Set())
+    function arrive(id: string, pending: boolean) {
+      const next = new Set(arriving())
+      if (pending) next.add(id)
+      else next.delete(id)
+      setArriving(next)
+    }
     let enabled = false
     let stopped = false
     // Set when the switchboard itself navigates home (e.g. after closing a project), so the
@@ -233,9 +246,11 @@ export default Plugin.define({
      * load it for this state anyway (the snapshot that starts a refresh).
      */
     function accept(next: State, loading = false) {
+      if (stopped) return
+      setSynced(true)
       // Revisions only grow; an equal one is the state already shown (e.g. a duplicate snapshot).
       // Another TUI's change updates rows here, but never this TUI's route.
-      if (stopped || next.revision <= state().revision) return
+      if (next.revision <= state().revision) return
       const admitted = Object.entries(next.projects)
         .filter(([, project]) => project.open)
         .map(([id, project]) => `${id}:${project.sessions.join(",")}`)
@@ -320,23 +335,50 @@ export default Plugin.define({
       reveal(`session:${id}`)
     }
     async function openInbox() {
-      const alreadyOpen = enabled && ctx.ui.panel.current()?.name === PANEL
-      enabled = true
-      focusConversation = false
-      if (alreadyOpen) {
-        // Move the cursor synchronously, before the refresh, so the next keypress acts on it.
-        focusPanel?.()
-        void revealCurrent()
-      } else showPanel()
-      suggestDisablingTabs()
-      await refresh()
-      // Startup (--session), and reopening after navigating while the switchboard was closed, adopt the route.
+      setOpening((count) => count + 1)
+      try {
+        const alreadyOpen = enabled && ctx.ui.panel.current()?.name === PANEL
+        enabled = true
+        focusConversation = false
+        if (alreadyOpen) {
+          // Move the cursor synchronously, before the refresh, so the next keypress acts on it.
+          focusPanel?.()
+          void revealCurrent()
+        } else showPanel()
+        suggestDisablingTabs()
+        await refresh()
+        // Startup (--session), and reopening after navigating while the switchboard was closed, adopt the route.
+        await listViewing()
+      } finally {
+        setOpening((count) => count - 1)
+      }
+    }
+    /**
+     * Lists the conversation this TUI shows if it has no row, or is not yet this TUI's current session, then puts the
+     * cursor on it. The open command and a click on the footer's `Not listed` both do this.
+     */
+    async function listViewing() {
       const route = ctx.ui.router.current()
       if (route.type === "session") {
         const root = ctx.data.session.root(route.sessionID)
         if (history.current !== root || !projectOf(state(), root)) await visit(route.sessionID)
+      } else if (route.type === "plugin") {
+        // The fullscreen switchboard covers the conversation it shows; none over the new-session screen.
+        const id = viewing()
+        if (id && !projectOf(state(), id)) await visit(id)
       }
       await revealCurrent()
+    }
+    /**
+     * Whether the conversation this TUI shows has no row, for the footer's `Not listed`. Not before the first server
+     * state, nor while an open or a visit is about to list it. A route this TUI has not adopted yet is on its way: the
+     * route effect visits it right after the route changes.
+     */
+    function missing() {
+      const id = viewing()
+      if (id === null || id !== shown() || !synced() || opening() || projectOf(state(), id)) return false
+      const route = ctx.ui.router.current()
+      return !arriving().has(route.type === "session" ? route.sessionID : id)
     }
     function canCloseCurrent() {
       const id = viewing()
@@ -376,6 +418,9 @@ export default Plugin.define({
       }
     }
     async function visit(id: string) {
+      arrive(id, true)
+      // A draft session stays arriving: its `session.created` visits it again.
+      let draft = false
       try {
         let root = ctx.data.session.root(id)
         let observed = sessions().find((session) => session.id === root)?.idle
@@ -384,11 +429,13 @@ export default Plugin.define({
           while (info.parentID) info = await ctx.client.session.get({ sessionID: info.parentID })
           root = info.id
           observed = info.time.idle ?? 0
+          // Still showing it: the same route, or the fullscreen switchboard over its conversation.
           const route = ctx.ui.router.current()
-          if (stopped || !enabled || route.type !== "session" || route.sessionID !== id) return
+          const here = route.type === "session" ? route.sessionID === id : viewing() === root
+          if (stopped || !enabled || !here) return
         }
-        // A subagent of the current session is the same work context: record nothing.
-        if (root !== id && root === history.current) return
+        // A subagent of the current session is the same work context: record nothing, unless its row is gone.
+        if (root !== id && root === history.current && projectOf(state(), root)) return
         show(root)
         // A navigation OpenCode drove (Ctrl+O, its session list) can replace the session view and close the side
         // panel, showing the native sidebar instead. While the switchboard is open, end every visit with it shown.
@@ -404,9 +451,13 @@ export default Plugin.define({
           "_tag" in cause &&
           cause._tag === "SessionNotFoundError" &&
           ctx.data.session.get(id)
-        )
+        ) {
+          draft = true
           return
+        }
         report(cause)
+      } finally {
+        if (!draft) arrive(id, false)
       }
     }
     /** A project's home screen (e.g. picked in Ctrl+O) opens that project; a saved one keeps its sessions. */
@@ -560,6 +611,14 @@ export default Plugin.define({
               } else navigate(session.id) // The route effect visits it.
             }}
             newSession={(project) => void newSession(project)}
+            hint={
+              missing()
+                ? {
+                    shortcut: ctx.keymap.shortcuts(HELP_COMMANDS.open)[0],
+                    add: () => void listViewing(),
+                  }
+                : undefined
+            }
             close={close}
             help={() => void help()}
             diagnostics={() => void diagnostics()}

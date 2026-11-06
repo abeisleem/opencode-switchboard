@@ -1389,3 +1389,178 @@ test("the demo's menu stand-in closes on Esc without acting or quitting", async 
     await app.dispose()
   }
 })
+
+// The footer's `Not listed` (#57).
+
+/** A panel with nothing listed, whose footer says `Not listed` while `hint` is set; its clicks are counted. */
+async function hintPanel(
+  options: { width?: number; shortcut?: string; focused?: boolean; error?: string; notice?: string } = {},
+) {
+  const [hint, setHint] = createSignal(true)
+  const [error, setError] = createSignal(options.error ?? "")
+  const [notice, setNotice] = createSignal(options.notice ?? "")
+  const added: string[] = []
+  const app = await testRender(
+    () => (
+      <InboxPanel
+        state={initialState()}
+        sessions={[]}
+        colors={palette}
+        error={error()}
+        notice={notice()}
+        loading={false}
+        focused={options.focused ?? true}
+        current="b"
+        act={() => {}}
+        open={() => {}}
+        close={() => {}}
+        help={() => {}}
+        diagnostics={() => {}}
+        hint={hint() ? { shortcut: options.shortcut, add: () => added.push("b") } : undefined}
+      />
+    ),
+    { width: options.width ?? 60, height: 10 },
+  )
+  // The hint measures the room beside `? help` once laid out.
+  await app.renderOnce()
+  await app.renderOnce()
+  const footer = lineOf(app, "? help")
+  return {
+    app,
+    added,
+    setHint,
+    setError,
+    setNotice,
+    footer,
+    line: () => app.captureCharFrame().split("\n")[footer]!,
+    async frame() {
+      await app.renderOnce()
+      await app.renderOnce()
+    },
+  }
+}
+
+test("Not listed reads as OpenCode's key hints: muted words, then the shortcut in text color and a muted label", async () => {
+  const run = await hintPanel({ shortcut: "ctrl+x i" })
+  try {
+    expect(run.line()).toMatch(/^ Not listed · ctrl\+x i add +\? help $/)
+    const at = (text: string) => run.line().indexOf(text)
+    expect(cell(run.app, at("Not"), run.footer)).toMatchObject({ char: "N", fg: palette.muted, bold: false })
+    expect(cell(run.app, at("·"), run.footer).fg).toBe(palette.muted)
+    for (const offset of [0, 7]) expect(cell(run.app, at("ctrl") + offset, run.footer).fg).toBe(palette.text)
+    expect(cell(run.app, at("add"), run.footer).fg).toBe(palette.muted)
+    // No fill: the hint sits on the footer's own surface, as `? help` does.
+    expect(cell(run.app, at("Not"), run.footer).bg).toBe(cell(run.app, at("?"), run.footer).bg)
+    // Gone once the row is back.
+    run.setHint(false)
+    await run.frame()
+    expect(run.line()).toMatch(/^ +\? help $/)
+  } finally {
+    await run.app.dispose()
+  }
+})
+
+test("an error, then a notice, take the footer from Not listed, which returns once they clear", async () => {
+  const run = await hintPanel({ shortcut: "ctrl+x i", error: "Not saved: no connection to the server" })
+  try {
+    expect(run.line()).toContain("! Not saved: no connection to the server")
+    expect(run.line()).not.toContain("Not listed")
+    run.setNotice("Reconnecting…")
+    await run.frame()
+    expect(run.line()).toContain("! Not saved")
+    run.setError("")
+    await run.frame()
+    expect(run.line()).toContain(" Reconnecting…")
+    expect(run.line()).not.toContain("Not listed")
+    run.setNotice("")
+    await run.frame()
+    expect(run.line()).toContain(" Not listed · ctrl+x i add")
+  } finally {
+    await run.app.dispose()
+  }
+})
+
+test("where the shortcut does not fit beside ? help, Not listed shows alone, never clipped mid-word", async () => {
+  // " Not listed · ctrl+x i add" plus a blank cell and "? help ": 34 cells.
+  for (const width of [14, 18, 24, 30, 33, 34, 35, 42]) {
+    const run = await hintPanel({ width, shortcut: "ctrl+x i" })
+    try {
+      const line = run.line()
+      if (width >= 34) expect(line).toMatch(/^ Not listed · ctrl\+x i add +\? help $/)
+      else if (width >= 19) expect(line).toMatch(/^ Not listed +\? help $/)
+      else expect(line).toMatch(/^ +\? help $/)
+    } finally {
+      await run.app.dispose()
+    }
+  }
+  // A longer custom shortcut gives up its part sooner.
+  const run = await hintPanel({ width: 36, shortcut: "ctrl+shift+a i" })
+  try {
+    expect(run.line()).toMatch(/^ Not listed +\? help $/)
+  } finally {
+    await run.app.dispose()
+  }
+})
+
+test("with the open command unbound, the footer says only Not listed and invents no key", async () => {
+  const run = await hintPanel()
+  try {
+    expect(run.line()).toMatch(/^ Not listed +\? help $/)
+    expect(run.line()).not.toContain("·")
+    expect(run.line()).not.toContain("/switchboard")
+  } finally {
+    await run.app.dispose()
+  }
+})
+
+test("hovering Not listed brightens its words without a fill, and only a left click adds the conversation", async () => {
+  const run = await hintPanel({ shortcut: "ctrl+x i" })
+  try {
+    const x = run.line().indexOf("Not")
+    await run.app.mockMouse.moveTo(x + 2, run.footer)
+    await run.frame()
+    const surface = cell(run.app, run.line().indexOf("?"), run.footer).bg
+    for (const text of ["Not", "·", "ctrl", "add"])
+      expect(cell(run.app, run.line().indexOf(text), run.footer)).toMatchObject({
+        fg: palette.text,
+        bg: surface,
+      })
+    await run.app.mockMouse.click(x + 2, run.footer, MouseButtons.RIGHT)
+    await run.app.mockMouse.click(x + 2, run.footer, MouseButtons.MIDDLE)
+    expect(run.added).toEqual([])
+    await run.app.mockMouse.click(x + 2, run.footer)
+    expect(run.added).toEqual(["b"])
+    // The blank cells after it are not part of it.
+    await run.app.mockMouse.click(run.line().indexOf("add") + 5, run.footer)
+    expect(run.added).toEqual(["b"])
+    await run.app.mockMouse.moveTo(x + 2, 2)
+    await run.frame()
+    expect(cell(run.app, x, run.footer).fg).toBe(palette.muted)
+  } finally {
+    await run.app.dispose()
+  }
+})
+
+test("the demo's h toggles the shown conversation's row, and a click on Not listed adds it back", async () => {
+  const app = await testRender(() => <Demo />, { width: 60, height: 34 })
+  try {
+    const frame = async () => {
+      await app.renderOnce()
+      await app.renderOnce()
+    }
+    await frame()
+    expect(app.captureCharFrame()).toContain("Inbox panel")
+    expect(app.captureCharFrame()).not.toContain("Not listed")
+    app.mockInput.pressKey("h")
+    await frame()
+    expect(app.captureCharFrame()).not.toContain("Inbox panel")
+    const footer = lineOf(app, "Not listed · ctrl+x i add")
+    expect(footer).toBeGreaterThan(0)
+    await app.mockMouse.click(3, footer)
+    await frame()
+    expect(app.captureCharFrame()).toContain("Inbox panel")
+    expect(app.captureCharFrame()).not.toContain("Not listed")
+  } finally {
+    await app.dispose()
+  }
+})
