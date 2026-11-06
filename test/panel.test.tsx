@@ -64,19 +64,21 @@ test("p parks the highlighted session, and p again unparks it", async () => {
 test("a and l no longer move a session, and p on a heading changes nothing", async () => {
   const app = await testRender(() => <Demo />, { width: 60, height: 30 })
   try {
+    // Running spinners advance every 80 ms, so a slow run sees a later frame; compare without them.
+    const still = () => app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")
     await app.renderOnce()
-    const start = app.captureCharFrame()
+    const start = still()
     // The cursor starts on the api-server heading.
     app.mockInput.pressKey("p")
     await app.renderOnce()
-    expect(app.captureCharFrame()).toBe(start)
+    expect(still()).toBe(start)
     await app.mockInput.pressArrow("down")
     await app.renderOnce()
-    const highlighted = app.captureCharFrame()
+    const highlighted = still()
     for (const key of ["l", "a"]) {
       app.mockInput.pressKey(key)
       await app.renderOnce()
-      expect(app.captureCharFrame()).toBe(highlighted)
+      expect(still()).toBe(highlighted)
     }
   } finally {
     await app.dispose()
@@ -406,6 +408,9 @@ for (const focused of [true, false]) {
       // The left button still acts on each target.
       await app.mockMouse.click(8, row)
       await app.mockMouse.click(8, heading)
+      // A pointer reaches the ✕ before clicking it. A click alone hovers its row only after the next frame,
+      // and an unfocused panel's ✕ acts only on the hovered row.
+      await app.mockMouse.moveTo(44, heading)
       await app.mockMouse.click(44, heading)
       await app.mockMouse.click(2, footer)
       await app.mockMouse.click(help, footer)
