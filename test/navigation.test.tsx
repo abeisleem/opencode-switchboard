@@ -124,6 +124,8 @@ async function harness(
   const modes: string[] = []
   const actions: Action[] = []
   const dispatched: string[] = []
+  // Toasts the switchboard showed, in order.
+  const toasts: { message: string; variant?: string; sessionID?: string }[] = []
   let render!: () => JSX.Element
   let renderApp!: () => JSX.Element
   let renderPanel: ((input: object) => JSX.Element) | undefined
@@ -275,6 +277,7 @@ async function harness(
         close: () => setPanel(undefined),
       },
       tabs: { enabled: () => false },
+      toast: { show: (toast: { message: string }) => toasts.push(toast) },
       dialog: {
         show: (render: () => JSX.Element, onClose?: () => void) =>
           dialogs.push({ saved: options.focus?.current ?? null, close: onClose ?? noop, render }),
@@ -351,6 +354,9 @@ async function harness(
         .filter((layer) => layer.mode === mode)
         .at(-1)?.commands ?? [],
     dispatched,
+    /** The messages of the toasts the switchboard showed, in order. */
+    toasts: () => toasts.map((toast) => toast.message),
+    toastOptions: toasts,
     rpc,
     failures,
     saved: () => saved,
@@ -1504,165 +1510,201 @@ test("a fullscreen project heading's New session item runs on a click, and the P
   }
 })
 
-// The footer's `Not listed` (#57).
+// A toast when the viewed conversation loses its row (#57).
 
-/** The panel's footer line, and a left click on its `Not listed`. */
-function footer(run: Awaited<ReturnType<typeof harness>>) {
-  const lines = () => run.app.captureCharFrame().split("\n")
-  const y = () => lines().findIndex((line) => line.includes("? help"))
-  return {
-    text: () => lines()[y()] ?? "",
-    async click() {
-      await run.app.mockMouse.click(lines()[y()]!.indexOf("Not listed") + 2, y())
-    },
-  }
+const NOT_LISTED = "Not in the switchboard. Press ctrl+x i to add it back"
+const openKey = (key: string) => (id: string) => (id === "opencode-switchboard.open" ? [key] : [])
+
+/** Another TUI changes something unrelated, and this TUI has applied it: a refresh that leaves the row missing. */
+async function unrelatedChange(run: Awaited<ReturnType<typeof harness>>) {
+  await run.rpc.act({ type: "unread", sessionID: "a" })
+  expect(await until(() => run.app.captureCharFrame().includes("• Task a"))).toBe(true)
+  await run.frame()
 }
 
-test("when another TUI closes the viewed row, the footer says Not listed with the open key, and a click adds it back", async () => {
-  const run = await harness({
-    shortcuts: (id) => (id === "opencode-switchboard.open" ? ["ctrl+x i"] : []),
-  })
+test("another TUI closing the viewed row toasts once with the open key, and the open command adds it back", async () => {
+  const run = await harness({ shortcuts: openKey("ctrl+x i") })
   try {
     await run.open()
     await run.frame()
-    expect(footer(run).text()).not.toContain("Not listed")
+    expect(run.toasts()).toEqual([])
     await run.rpc.act({ type: "session-remove", sessionID: "b" })
-    expect(await until(() => footer(run).text().includes("Not listed · ctrl+x i add"))).toBe(true)
-    expect(run.app.captureCharFrame()).not.toContain("Task b")
+    expect(await until(() => run.toasts().length === 1)).toBe(true)
+    expect(run.toastOptions).toEqual([{ variant: "info", message: NOT_LISTED }])
+    expect(await until(() => !run.app.captureCharFrame().includes("Task b"))).toBe(true)
     expect(run.route()).toEqual({ type: "session", sessionID: "b" })
-    const actions = run.actions.length
-    await footer(run).click()
-    expect(await until(() => run.app.captureCharFrame().includes("Task b"))).toBe(true)
-    expect(run.actions.slice(actions)).toEqual([{ type: "visit", sessionID: "b", observed: 0 }])
-    expect(run.saved().projects.work?.sessions).toContain("b")
+    // The footer stays for lasting states only.
+    expect(run.app.captureCharFrame()).not.toContain("Not in the switchboard")
+    // Later refreshes while it is still missing say nothing more.
+    await unrelatedChange(run)
+    expect(run.toasts()).toEqual([NOT_LISTED])
+    // <leader>i lists it again, quietly.
+    await run.open()
     await run.frame()
-    expect(footer(run).text()).not.toContain("Not listed")
+    expect(run.app.captureCharFrame()).toContain("Task b")
     expect(run.bold("Task b")).toBe(true)
-    expect(run.route()).toEqual({ type: "session", sessionID: "b" })
+    expect(run.toasts()).toEqual([NOT_LISTED])
+    // Losing it again is a new event.
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    expect(await until(() => run.toasts().length === 2)).toBe(true)
+    expect(run.toasts()).toEqual([NOT_LISTED, NOT_LISTED])
   } finally {
     await run.dispose()
   }
 })
 
-test("a closed project hides the viewed row too, and Not listed reopens it", async () => {
-  const run = await harness()
+test("the toast names a custom leader's key, and with the open command unbound, no key", async () => {
+  for (const [shortcuts, message] of [
+    [openKey("ctrl+a i"), "Not in the switchboard. Press ctrl+a i to add it back"],
+    [() => [], "Not in the switchboard. Open the switchboard to add it back"],
+  ] as const) {
+    const run = await harness({ shortcuts })
+    try {
+      await run.open()
+      await run.frame()
+      await run.rpc.act({ type: "session-remove", sessionID: "b" })
+      expect(await until(() => run.toasts().length === 1)).toBe(true)
+      expect(run.toasts()).toEqual([message])
+    } finally {
+      await run.dispose()
+    }
+  }
+})
+
+test("another TUI closing the viewed conversation's project toasts too", async () => {
+  const run = await harness({ shortcuts: openKey("ctrl+x i") })
   try {
     await run.open()
     await run.frame()
     await run.rpc.act({ type: "project-close", project: "work" })
-    // The open command is unbound here, so the footer names no key.
-    expect(await until(() => /^ Not listed +\? help/.test(footer(run).text()))).toBe(true)
-    await footer(run).click()
-    expect(await until(() => run.app.captureCharFrame().includes("Task b"))).toBe(true)
+    expect(await until(() => run.toasts().length === 1)).toBe(true)
+    expect(run.toasts()).toEqual([NOT_LISTED])
+    await run.open()
+    await run.frame()
     expect(run.saved().projects.work?.open).toBe(true)
-    await run.frame()
-    expect(footer(run).text()).not.toContain("Not listed")
-  } finally {
-    await run.dispose()
-  }
-})
-
-test("Not listed waits for the first state and for the visit that lists a conversation never listed", async () => {
-  const snapshot = Promise.withResolvers<void>()
-  const visit = Promise.withResolvers<void>()
-  const run = await harness({ members: ["a"], snapshotGate: snapshot.promise, visitGate: visit.promise })
-  const opening = run.open()
-  try {
-    await run.frame()
-    expect(footer(run).text()).toContain("? help")
-    expect(footer(run).text()).not.toContain("Not listed")
-    snapshot.resolve()
-    expect(await until(() => run.actions.some((action) => action.type === "visit"))).toBe(true)
-    await run.frame()
-    expect(run.app.captureCharFrame()).toContain("Task a")
-    expect(footer(run).text()).not.toContain("Not listed")
-    visit.resolve()
-    await opening
-    await run.frame()
     expect(run.app.captureCharFrame()).toContain("Task b")
-    expect(footer(run).text()).not.toContain("Not listed")
-  } finally {
-    snapshot.resolve()
-    visit.resolve()
-    await opening
-    await run.dispose()
-  }
-})
-
-test("from a subagent, Not listed and the open command list its root again", async () => {
-  const run = await harness({ route: { type: "session", sessionID: "child" } })
-  try {
-    await run.open()
-    await run.frame()
-    await run.rpc.act({ type: "session-remove", sessionID: "b" })
-    expect(await until(() => footer(run).text().includes("Not listed"))).toBe(true)
-    await footer(run).click()
-    expect(await until(() => run.app.captureCharFrame().includes("Task b"))).toBe(true)
-    expect(run.route()).toEqual({ type: "session", sessionID: "child" })
-    expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "b", observed: 0 })
-    // The open command does the same.
-    await run.rpc.act({ type: "session-remove", sessionID: "b" })
-    expect(await until(() => footer(run).text().includes("Not listed"))).toBe(true)
-    await run.open()
-    await run.frame()
-    expect(run.app.captureCharFrame()).toContain("Task b")
-    expect(footer(run).text()).not.toContain("Not listed")
   } finally {
     await run.dispose()
   }
 })
 
-test("over the fullscreen switchboard, Not listed adds back the conversation it covers", async () => {
-  const run = await harness()
-  try {
-    await run.open()
-    await run.frame()
-    run.navigate({ type: "plugin", id: "opencode-switchboard", name: "switchboard" })
-    await run.rpc.act({ type: "session-remove", sessionID: "b" })
-    expect(await until(() => footer(run).text().includes("Not listed"))).toBe(true)
-    await footer(run).click()
-    expect(await until(() => run.app.captureCharFrame().includes("Task b"))).toBe(true)
-    expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "b", observed: 0 })
-    expect(run.route()).toEqual({ type: "plugin", id: "opencode-switchboard", name: "switchboard" })
-  } finally {
-    await run.dispose()
-  }
-})
-
-test("closing the viewed row in this TUI goes back without showing Not listed", async () => {
-  const run = await harness()
+test("this TUI's own close of the viewed row, by leader-w, x, or its project, goes back without a toast", async () => {
+  const run = await harness({ shortcuts: openKey("ctrl+x i"), other: ["c"] })
   try {
     await run.open()
     await run.frame()
     await run.close().run()
     await run.frame()
     expect(run.route()).toEqual({ type: "session", sessionID: "a" })
-    expect(footer(run).text()).not.toContain("Not listed")
+    // The cursor follows the conversation shown; `x` closes its row.
+    await run.open()
+    await run.key("x")
+    await run.frame()
+    expect(run.app.captureCharFrame()).not.toContain("Task a")
+    // c is the only row left; closing its project from the heading goes home (the fullscreen switchboard over it).
+    run.navigate({ type: "session", sessionID: "c" })
+    expect(await until(() => run.bold("Task c"))).toBe(true)
+    await run.open()
+    await run.key("up,k")
+    await run.key("x")
+    expect(await until(() => run.route().type === "plugin")).toBe(true)
+    expect(run.saved().projects.other?.open).toBe(false)
+    await run.frame()
+    expect(run.toasts()).toEqual([])
   } finally {
     await run.dispose()
   }
 })
 
-test("opening an unlisted session while the switchboard is open shows no Not listed while its visit lands", async () => {
-  const options: Parameters<typeof harness>[0] = {}
+test("no toast at startup, while a new route's visit lands, or after a failed first visit", async () => {
+  const visit = Promise.withResolvers<void>()
+  const options: Parameters<typeof harness>[0] = { members: ["a"], shortcuts: openKey("ctrl+x i") }
   const run = await harness(options)
-  const gate = Promise.withResolvers<void>()
   try {
+    // Startup lists the conversation shown, which had no row.
     await run.open()
     await run.frame()
-    // Every visit from here on waits for the gate.
-    options.visitGate = gate.promise
+    expect(run.app.captureCharFrame()).toContain("Task b")
+    // Opening an unlisted session elsewhere: no toast while its visit is held, nor after it lands.
+    options.visitGate = visit.promise
     run.hostOpen("c")
     expect(await until(() => run.actions.at(-1)?.type === "visit")).toBe(true)
     await run.frame()
-    expect(footer(run).text()).toContain("? help")
-    expect(footer(run).text()).not.toContain("Not listed")
-    gate.resolve()
+    expect(run.toasts()).toEqual([])
+    visit.resolve()
     expect(await until(() => run.app.captureCharFrame().includes("Task c"))).toBe(true)
-    await run.frame()
-    expect(footer(run).text()).not.toContain("Not listed")
+    expect(run.toasts()).toEqual([])
   } finally {
-    gate.resolve()
+    visit.resolve()
+    await run.dispose()
+  }
+  // A first visit that fails leaves the conversation unlisted: the footer has the error, and no toast fires.
+  const failing = await harness({ members: ["a"], shortcuts: openKey("ctrl+x i") })
+  try {
+    failing.failures.act = { type: "rpc.internal", message: "RPC call failed" }
+    await failing.open()
+    await failing.frame()
+    expect(failing.app.captureCharFrame()).toContain("! rpc.internal: RPC call failed")
+    expect(failing.toasts()).toEqual([])
+  } finally {
+    await failing.dispose()
+  }
+})
+
+test("from a subagent, the parent's row closing elsewhere toasts, and the open command lists the parent", async () => {
+  const run = await harness({
+    route: { type: "session", sessionID: "child" },
+    shortcuts: openKey("ctrl+x i"),
+  })
+  try {
+    await run.open()
+    await run.frame()
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    expect(await until(() => run.toasts().length === 1)).toBe(true)
+    await run.open()
+    await run.frame()
+    expect(run.app.captureCharFrame()).toContain("Task b")
+    expect(run.route()).toEqual({ type: "session", sessionID: "child" })
+    expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "b", observed: 0 })
+    expect(run.toasts()).toEqual([NOT_LISTED])
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("over the fullscreen switchboard, the covered conversation losing its row toasts, and opening lists it", async () => {
+  const run = await harness({ shortcuts: openKey("ctrl+x i") })
+  try {
+    await run.open()
+    await run.frame()
+    run.navigate({ type: "plugin", id: "opencode-switchboard", name: "switchboard" })
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    expect(await until(() => run.toasts().length === 1)).toBe(true)
+    await run.open()
+    expect(await until(() => run.app.captureCharFrame().includes("Task b"))).toBe(true)
+    expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "b", observed: 0 })
+    expect(run.route()).toEqual({ type: "plugin", id: "opencode-switchboard", name: "switchboard" })
+    expect(run.toasts()).toEqual([NOT_LISTED])
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("with the switchboard closed, another TUI's close of the viewed row does not toast", async () => {
+  const run = await harness({ shortcuts: openKey("ctrl+x i") })
+  try {
+    await run.open()
+    await run.frame()
+    await run.key("escape")
+    await run.rpc.act({ type: "session-remove", sessionID: "b" })
+    await run.frame()
+    expect(run.toasts()).toEqual([])
+    // Opening it lists the conversation again, without a toast.
+    await run.open()
+    await run.frame()
+    expect(run.app.captureCharFrame()).toContain("Task b")
+    expect(run.toasts()).toEqual([])
+  } finally {
     await run.dispose()
   }
 })

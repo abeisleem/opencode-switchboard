@@ -12,6 +12,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js"
 import { Switchboard } from "./rpc"
 import { createClientState } from "./client"
@@ -115,6 +116,15 @@ export default Plugin.define({
       if (pending) next.add(id)
       else next.delete(id)
       setArriving(next)
+    }
+    // Conversations whose rows this TUI itself takes away: a row it is closing, or a session it saw deleted. Their
+    // rows go on purpose, so they never count as missing.
+    const [leaving, setLeaving] = createSignal<ReadonlySet<string>>(new Set())
+    function leave(id: string, gone: boolean) {
+      const next = new Set(leaving())
+      if (gone) next.add(id)
+      else next.delete(id)
+      setLeaving(next)
     }
     let enabled = false
     let stopped = false
@@ -238,8 +248,13 @@ export default Plugin.define({
     async function change(action: Action) {
       const id = viewing()
       const listed = id !== null && projectOf(state(), id) !== undefined
-      await act(action)
-      if (listed && enabled && viewing() === id && !projectOf(state(), id)) goBack(id)
+      if (listed) leave(id, true)
+      try {
+        await act(action)
+        if (listed && enabled && viewing() === id && !projectOf(state(), id)) goBack(id)
+      } finally {
+        if (listed) leave(id, false)
+      }
     }
     /**
      * Shows a newer state. A membership change refreshes the catalog, unless `loading` says the caller is about to
@@ -355,7 +370,7 @@ export default Plugin.define({
     }
     /**
      * Lists the conversation this TUI shows if it has no row, or is not yet this TUI's current session, then puts the
-     * cursor on it. The open command and a click on the footer's `Not listed` both do this.
+     * cursor on it. The open command does this; it is how a conversation whose row went (see `missing`) comes back.
      */
     async function listViewing() {
       const route = ctx.ui.router.current()
@@ -370,13 +385,21 @@ export default Plugin.define({
       await revealCurrent()
     }
     /**
-     * Whether the conversation this TUI shows has no row, for the footer's `Not listed`. Not before the first server
-     * state, nor while an open or a visit is about to list it. A route this TUI has not adopted yet is on its way: the
-     * route effect visits it right after the route changes.
+     * Whether the conversation this TUI shows has no row. Not before the first server state, nor while an open or a
+     * visit is about to list it, nor while this TUI takes the row away itself. A route this TUI has not adopted yet is
+     * on its way: the route effect visits it right after the route changes.
      */
     function missing() {
       const id = viewing()
-      if (id === null || id !== shown() || !synced() || opening() || projectOf(state(), id)) return false
+      if (
+        id === null ||
+        id !== shown() ||
+        !synced() ||
+        opening() ||
+        leaving().has(id) ||
+        projectOf(state(), id)
+      )
+        return false
       const route = ctx.ui.router.current()
       return !arriving().has(route.type === "session" ? route.sessionID : id)
     }
@@ -611,14 +634,6 @@ export default Plugin.define({
               } else navigate(session.id) // The route effect visits it.
             }}
             newSession={(project) => void newSession(project)}
-            hint={
-              missing()
-                ? {
-                    shortcut: ctx.keymap.shortcuts(HELP_COMMANDS.open)[0],
-                    add: () => void listViewing(),
-                  }
-                : undefined
-            }
             close={close}
             help={() => void help()}
             diagnostics={() => void diagnostics()}
@@ -696,9 +711,34 @@ export default Plugin.define({
         </Show>
       ),
     })
+    /** Says that the conversation shown lost its row, and how to add it back with the open command's key. */
+    function tellMissing() {
+      const key = ctx.keymap.shortcuts(HELP_COMMANDS.open)[0]
+      ctx.ui.toast.show({
+        variant: "info",
+        // No `sessionID`: for the conversation shown it adds nothing, and over the fullscreen switchboard it would
+        // add an Open action that leaves the switchboard instead of adding the row back.
+        message: key
+          ? `Not in the switchboard. Press ${key} to add it back`
+          : "Not in the switchboard. Open the switchboard to add it back",
+      })
+    }
     const stopApp = ctx.ui.slot({
       append: "app",
       render: () => {
+        // When another TUI closes the row of the conversation shown here (or its project), say so once: the row had
+        // been there while this TUI showed it, and now it is missing. A conversation that never had a row here, a new
+        // route, and this TUI's own close never toast. A row that comes back and goes again toasts again.
+        let had: string | null = null
+        createEffect(() => {
+          const id = viewing()
+          if (id !== null && projectOf(state(), id)) had = id
+          else if (id !== had) had = null
+          else if (missing()) {
+            had = null
+            if (enabled) untrack(tellMissing)
+          }
+        })
         createEffect(
           on(
             () => {
@@ -788,6 +828,8 @@ export default Plugin.define({
     })
     const stopDeletes = ctx.data.on("session.deleted", (event) => {
       const id = event.data.sessionID
+      // A deleted session's row goes for good, so it is never reported missing.
+      leave(id, true)
       // Use the exact deleted ID: deleting a subagent must not close its root's row.
       const current = history.current === id
       if (!current && !Object.values(state().projects).some((project) => project.sessions.includes(id)))

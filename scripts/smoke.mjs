@@ -26,7 +26,7 @@ const navigation = process.argv.includes("navigation")
 const menu = process.argv.includes("menu")
 // Opt-in new-session coverage, `n` and a project heading's menu: node scripts/smoke.mjs session newsession
 const newSession = process.argv.includes("newsession")
-// Opt-in no-row hint coverage, a second client closing the viewed row: node scripts/smoke.mjs session norow
+// Opt-in coverage of a second client closing the viewed row (a toast, then leader+i): node scripts/smoke.mjs session norow
 const noRow = process.argv.includes("norow")
 // A real separate server, so a second client can change the shared state.
 const remoteServer = navigation || noRow
@@ -327,23 +327,17 @@ async function newSessionScenario() {
   await onNewSessionScreen(second)
 }
 /**
- * Another client closes the row of the conversation this TUI shows: the row goes, the conversation stays, and the
- * footer says `Not listed` with the open command's key. A click on it lists the conversation again.
+ * Another client closes the row of the conversation this TUI shows: the row goes, the conversation stays, and a
+ * toast says how to add it back. The TUI's `<leader>i` (Ctrl+X, then I) lists the conversation again.
  */
 async function noRowScenario() {
   await wait(() => current("Isolated panel smoke"))
   remoteAct([{ type: "session-remove", sessionID: session }])
-  const hint = "Not listed · ctrl+x i add"
-  await wait((text) => rowOf("Isolated panel smoke") < 0 && text.includes(hint))
+  await wait((text) => rowOf("Isolated panel smoke") < 0 && text.includes("Not in the switchboard"))
   if (!/┃/.test(screen())) throw new Error(`The conversation did not stay open:\n${screen()}`)
-  await writeFile(`${repo}/artifacts/opencode-${bundled ? "bundled-" : ""}norow-hint.txt`, screen())
-  if (terminal.modes.mouseTrackingMode === "none") throw new Error("Mouse reporting is not enabled")
-  const y = screen()
-    .split("\n")
-    .findIndex((line) => line.includes(hint))
-  const x = screen().split("\n")[y].indexOf(hint) + 2
-  child.write(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`)
-  await wait((text) => current("Isolated panel smoke") && !text.includes("Not listed"))
+  await writeFile(`${repo}/artifacts/opencode-${bundled ? "bundled-" : ""}norow-toast.txt`, screen())
+  child.write("\x18i")
+  await wait(() => current("Isolated panel smoke"))
 }
 let passed = false
 try {
@@ -505,7 +499,7 @@ try {
     frame,
   )
   console.log(
-    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""}${menu ? ", right-click menu from the composer" : ""}${newSession ? ", new session with n and the heading menu" : ""}${noRow ? ", Not listed after another client closes the row" : ""})`,
+    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""}${menu ? ", right-click menu from the composer" : ""}${newSession ? ", new session with n and the heading menu" : ""}${noRow ? ", toast after another client closes the row, then leader+i" : ""})`,
   )
   passed = true
 } finally {
