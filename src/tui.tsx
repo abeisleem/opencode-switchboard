@@ -444,8 +444,23 @@ export default Plugin.define({
         ctx.ui.router.navigate(selected ? { type: "session", sessionID: selected } : { type: "home" })
       }
     }
+    /**
+     * Whether a visit to the route's session ends with the panel shown: a session this TUI shows, unless it is a
+     * subagent of the current session, whose visit records nothing.
+     */
+    function visitShowsPanel(id: string) {
+      const route = ctx.ui.router.current()
+      if (stopped || !enabled || route.type !== "session" || route.sessionID !== id) return false
+      const root = ctx.data.session.root(id)
+      return !(root !== id && root === history.current && projectOf(state(), root))
+    }
     async function visit(id: string) {
+      // A navigation OpenCode drove (Ctrl+O, its session list) can replace the session view and close the side
+      // panel, showing the native sidebar instead. While the switchboard is open, a visit shows it again at once,
+      // in the tick the route changes: the host then mounts the destination and the panel together, as a switch
+      // from the panel does. Only this TUI's own visits do this; another TUI's changes never open anything here.
       arrive(id, true)
+      if (visitShowsPanel(id)) showPanel()
       // A draft session stays arriving: its `session.created` visits it again.
       let draft = false
       try {
@@ -464,10 +479,8 @@ export default Plugin.define({
         // A subagent of the current session is the same work context: record nothing, unless its row is gone.
         if (root !== id && root === history.current && projectOf(state(), root)) return
         show(root)
-        // A navigation OpenCode drove (Ctrl+O, its session list) can replace the session view and close the side
-        // panel, showing the native sidebar instead. While the switchboard is open, end every visit with it shown.
-        // Only this TUI's own visits do this; another TUI's changes never open anything here.
         if (!(await act({ type: "visit", sessionID: root, observed }))) return
+        // Ends with it shown too, in case the host closed it meanwhile.
         if (!stopped && enabled && ctx.ui.router.current().type === "session") showPanel()
       } catch (cause) {
         // The host navigates optimistically, before its create request commits.
