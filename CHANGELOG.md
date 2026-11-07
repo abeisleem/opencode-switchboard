@@ -2,13 +2,16 @@
 
 ## Unreleased
 
-- Refreshes load only the sessions the switchboard tracks, not every past session of every open project, and
-  load the open projects in parallel. In projects with hundreds of past sessions and a few tracked (6
-  projects, 1,000 sessions, 90 tracked), a refresh transfers 49 KB instead of 420 KB and takes 363 ms instead
-  of 627 ms over a link with 20 ms of latency. It makes 107 requests instead of 32, at most 8 at a time.
-  Projects where at least half the sessions are tracked are still listed, as before: with 3 projects of 30
-  sessions and 45 tracked, a refresh still makes 14 requests and now takes 115 ms instead of 190 ms at 20 ms
-  of latency.
+Update the plugin on the server machine too, not only on TUI machines, to get the full gain; mixed versions keep
+working.
+
+- Refreshes load only the sessions the switchboard tracks, not every past session of every open project. The
+  server part now reads them in one request, and the panel loads the open projects in parallel. With 6 projects
+  of 1,000 past sessions and 90 tracked, a refresh transfers 35 KB instead of 420 KB in 18 requests instead
+  of 32, and takes 144 ms instead of 576 ms over a link with 20 ms of latency. With 3 projects of 30 sessions
+  and 45 tracked, it transfers 18 KB instead of 44 KB in 12 requests instead of 14, and takes 98 ms instead of
+  184 ms. Against a 0.2.1 server part, the panel still loads only tracked sessions and projects in parallel:
+  49 KB and 354 ms in the first case (107 requests), 147 ms in the second (14 requests).
 
 ## 0.2.1 (2026-11-06)
 
