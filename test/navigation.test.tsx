@@ -66,6 +66,10 @@ async function harness(
     unlisted?: boolean
     /** The server part answers the catalog method, as 0.2.2 and later do; otherwise it lacks it. */
     catalog?: boolean
+    /** The location this TUI shows (`ctx.location`); /work by default. */
+    location?: () => { directory: string }
+    /** The current git branch of a location, as the host's VCS info reports it. */
+    branch?: (directory: string) => string | undefined
   } = {},
 ) {
   // What the switchboard's RPC calls reject with; a test can change it while the TUI runs.
@@ -175,7 +179,9 @@ async function harness(
   const color = RGBA.fromHex("#c0caf5")
   const context = {
     options: {},
-    location: { directory: "/work" },
+    get location() {
+      return options.location?.() ?? { directory: "/work" }
+    },
     client: {
       rpc: () => ({
         snapshot: async () => {
@@ -232,6 +238,14 @@ async function harness(
       form: { list: async () => ({ data: [] }) },
     },
     data: {
+      location: {
+        vcs: {
+          info: (location: { directory: string }) => {
+            const current = options.branch?.(location.directory)
+            return current ? { branch: { current } } : undefined
+          },
+        },
+      },
       on: () => noop,
       session: {
         root: (id: string) => (id === "child" ? "b" : id),
@@ -274,6 +288,8 @@ async function harness(
       }),
     },
     ui: {
+      // As the host: the home directory shortened to `~`.
+      format: { path: (value: string) => value.replace(/^\/home\/me(?=\/|$)/, "~") },
       router: {
         current: route,
         navigate,
@@ -1039,7 +1055,8 @@ test("help shows the keymap's shortcuts exactly, and no ctrl+x for unbound comma
 
 test("our dialogs leave OpenCode no focus to restore, then refocus the panel once on close", async () => {
   const focus = fakeFocus()
-  const run = await harness({ focus })
+  // A failed refresh puts an error line in the footer; the footer's resting location opens nothing.
+  const run = await harness({ focus, fail: { type: "rpc.internal", message: "RPC call failed" } })
   try {
     await run.open()
     await run.frame()
@@ -1762,6 +1779,30 @@ test("with the switchboard closed, another TUI's close of the viewed row does no
     await run.frame()
     expect(run.app.captureCharFrame()).toContain("Task b")
     expect(run.toasts()).toEqual([])
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("the footer shows the location this TUI shows, home as ~, with its branch, and follows both", async () => {
+  const [location, setLocation] = createSignal({ directory: "/home/me/work" })
+  const [branch, setBranch] = createSignal<string | undefined>("main")
+  const run = await harness({ location, branch: () => branch() })
+  try {
+    await run.open()
+    await run.frame()
+    await run.frame()
+    const footer = () => run.app.captureCharFrame().split("\n").at(-2)!
+    expect(footer()).toMatch(/^ ~\/work:main +\? help/)
+    // The host reloads the branch on `vcs.branch.updated`.
+    setBranch("feature")
+    await run.frame()
+    expect(footer()).toMatch(/^ ~\/work:feature +\? help/)
+    // Another conversation's location, outside the home directory and without git: the path alone.
+    setLocation({ directory: "/srv/other" })
+    setBranch(undefined)
+    await run.frame()
+    expect(footer()).toMatch(/^ \/srv\/other +\? help/)
   } finally {
     await run.dispose()
   }

@@ -7,6 +7,7 @@ import { createSignal, onCleanup, type JSX } from "solid-js"
 import { DEMO_PALETTE as palette, Demo, demoSessions, demoState } from "../src/demo"
 import { HELP_COMMANDS, HelpDialog, helpShortcuts, type HelpShortcuts } from "../src/help"
 import { InboxPanel, tint, type PanelProps } from "../src/panel"
+import { truncateFilePath } from "../src/file-path"
 import type { MenuControls } from "../src/menu"
 import { initialState, parkedKey, reduce, type Action } from "../src/model"
 import plugin from "../src/tui"
@@ -67,6 +68,8 @@ test("a and l no longer move a session, and p on a heading changes nothing", asy
   try {
     // Running spinners advance every 80 ms, so a slow run sees a later frame; compare without them.
     const still = () => app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")
+    // The footer location appears on the second frame, once its width is measured.
+    await app.renderOnce()
     await app.renderOnce()
     const start = still()
     // The cursor starts on the api-server heading.
@@ -595,6 +598,7 @@ test("native session renames refresh mounted rows without waiting for the poll",
       form: { list: async () => ({ data: [] }) },
     },
     data: {
+      location: { vcs: { info: () => undefined } },
       on: (type: string, listener: () => void) => {
         listeners.set(type, listener)
         return () => listeners.delete(type)
@@ -623,6 +627,7 @@ test("native session renames refresh mounted rows without waiting for the poll",
       decrease: (value: RGBA) => value,
     },
     ui: {
+      format: { path: (value: string) => value },
       router: {
         current: () => ({ type: "plugin", name: "switchboard" }),
         register: (route: { render: () => JSX.Element }) => {
@@ -1387,6 +1392,124 @@ test("the demo's menu stand-in closes on Esc without acting or quitting", async 
     expect(menuShown(app)).toEqual([])
     expect(app.captureCharFrame().replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "")).toBe(before)
     expect(app.renderer.isDestroyed).toBe(false)
+  } finally {
+    await app.dispose()
+  }
+})
+
+/** The panel alone, at `width`, with a footer location and an optional error or notice. */
+async function footerPanel(width: number, props: Partial<PanelProps> & { location?: string }) {
+  const counts = { help: 0, diagnostics: 0, opened: 0 }
+  const app = await testRender(
+    () => (
+      <InboxPanel
+        state={demoState()}
+        sessions={demoSessions()}
+        colors={palette}
+        error=""
+        loading={false}
+        focused={true}
+        current={null}
+        act={() => {}}
+        open={() => counts.opened++}
+        close={() => {}}
+        help={() => counts.help++}
+        diagnostics={() => counts.diagnostics++}
+        {...props}
+      />
+    ),
+    { width, height: 30 },
+  )
+  // The location's width is measured on one frame and applied on the next, as in the prompt footer.
+  await app.renderOnce()
+  await app.renderOnce()
+  return { app, counts, footer: () => app.captureCharFrame().split("\n")[29]! }
+}
+
+const LOCATIONS = [
+  "~/repos/dotfiles",
+  "~/repos/dotfiles:main",
+  "~/repos/opencode-switchboard-footer-location",
+  "~/repos/opencode-switchboard-footer-location:feat/footer-location",
+]
+for (const width of [30, 42, 60]) {
+  test(`the footer shows the location as OpenCode's FilePath truncates it, beside ? help, at ${width} columns`, async () => {
+    for (const location of LOCATIONS) {
+      const { app, footer } = await footerPanel(width, { location })
+      try {
+        // One cell of padding each side and one between; `? help` keeps its six cells.
+        const shown = truncateFilePath(location, width - 2 - 1 - 6)
+        expect(footer()).toBe(` ${shown.padEnd(width - 2 - 6)}? help `)
+        if (location.length <= width - 9) expect(shown).toBe(location)
+      } finally {
+        await app.dispose()
+      }
+    }
+  })
+}
+
+test("the footer location is muted plain text: hover keeps it muted, and no button acts on it", async () => {
+  const { app, counts, footer } = await footerPanel(42, { location: "~/repos/dotfiles:main" })
+  try {
+    expect(cell(app, 1, 29)).toMatchObject({ char: "~", fg: palette.muted })
+    expect(cell(app, 18, 29)).toMatchObject({ char: "m", fg: palette.muted })
+    await app.mockMouse.moveTo(5, 29)
+    await app.renderOnce()
+    expect(cell(app, 1, 29).fg).toBe(palette.muted)
+    for (const button of [MouseButtons.LEFT, MouseButtons.RIGHT, MouseButtons.MIDDLE]) {
+      await app.mockMouse.click(5, 29, button)
+      await app.renderOnce()
+    }
+    expect(counts).toEqual({ help: 0, diagnostics: 0, opened: 0 })
+    expect(footer()).toContain("~/repos/dotfiles:main")
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("an error or Reconnecting… replaces the footer location while it lasts, and ? help stays whole", async () => {
+  const [error, setError] = createSignal("")
+  const [notice, setNotice] = createSignal("")
+  const app = await testRender(
+    () => (
+      <InboxPanel
+        state={demoState()}
+        sessions={demoSessions()}
+        colors={palette}
+        error={error()}
+        notice={notice()}
+        location="~/repos/dotfiles:main"
+        loading={false}
+        focused={true}
+        current={null}
+        act={() => {}}
+        open={() => {}}
+        close={() => {}}
+        help={() => {}}
+        diagnostics={() => {}}
+      />
+    ),
+    { width: 30, height: 30 },
+  )
+  const footer = () => app.captureCharFrame().split("\n")[29]!
+  try {
+    await app.renderOnce()
+    await app.renderOnce()
+    expect(footer()).toBe(" ~/repos/dotfiles:main ? help ")
+    setNotice("Reconnecting…")
+    await app.renderOnce()
+    expect(footer()).toMatch(/^ Reconnecting… +\? help $/)
+    expect(cell(app, 1, 29).fg).toBe(palette.muted)
+    // An error outranks the notice, and a long one is clipped before `? help`, never over it.
+    setError("Not saved: no connection to the server")
+    await app.renderOnce()
+    expect(footer()).toBe(" ! Not saved: no conne ? help ")
+    expect(cell(app, 1, 29)).toMatchObject({ char: "!", fg: palette.error })
+    setError("")
+    setNotice("")
+    await app.renderOnce()
+    await app.renderOnce()
+    expect(footer()).toBe(" ~/repos/dotfiles:main ? help ")
   } finally {
     await app.dispose()
   }

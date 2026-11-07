@@ -3,15 +3,15 @@ OpenCode plugin, one npm package with three parts: `.` (server: storage + RPC), 
 
 # Commands
 
-| Task       | Command                                                                                                               |
-| ---------- | --------------------------------------------------------------------------------------------------------------------- |
-| Install    | `bun install`                                                                                                         |
-| Typecheck  | `bun run typecheck`                                                                                                   |
-| Release sync tests | `bun run test:releases` |
-| Fast tests | `bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/catalog.test.ts test/palette.test.ts test/session-creation.test.tsx test/deletion.test.tsx test/navigation.test.tsx test/sessions.test.ts` |
-| Format     | `bun run format`                                                                                                      |
-| Build      | `bun run build` (writes `dist/tui.js`; also runs on pack)                                                             |
-| Pack check | `bun run pack:dry-run`                                                                                                |
+| Task               | Command                                                                                                                                                                                                                                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Install            | `bun install`                                                                                                                                                                                                                                                                                  |
+| Typecheck          | `bun run typecheck`                                                                                                                                                                                                                                                                            |
+| Release sync tests | `bun run test:releases`                                                                                                                                                                                                                                                                        |
+| Fast tests         | `bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/catalog.test.ts test/sessions.test.ts test/palette.test.ts test/session-creation.test.tsx test/deletion.test.tsx test/navigation.test.tsx test/error-text.test.ts test/file-path.test.ts` |
+| Format             | `bun run format`                                                                                                                                                                                                                                                                               |
+| Build              | `bun run build` (writes `dist/tui.js`; also runs on pack)                                                                                                                                                                                                                                      |
+| Pack check         | `bun run pack:dry-run`                                                                                                                                                                                                                                                                         |
 
 Name test files explicitly: a bare `bun test` (or `bun run test`) also runs `test/integration.test.ts`, a
 gated check.

@@ -107,6 +107,7 @@ export function Demo(props: { current?: string | null; focused?: boolean } = {})
         sessions={sessions}
         error={failed() ? "Not saved: no connection to the server" : ""}
         notice={reconnecting() ? RECONNECTING : ""}
+        location="~/repos/dotfiles:inbox-panel"
         loading={false}
         focused={props.focused ?? true}
         current={props.current === undefined ? shown() : props.current}
