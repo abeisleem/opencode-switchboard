@@ -11,21 +11,13 @@ const PAGE = 100
 const CONCURRENCY = 8
 const SETTLED: Session["status"][] = ["Error", "Interrupted", "Ready", "Idle"]
 
-/**
- * Each project's root-session count as last listed, or one more than listed once a listing stopped early. It
- * decides whether listing the project's roots or reading each tracked one costs less.
- */
-export type RootCounts = Map<string, number>
-
 /** What one refresh leaves for the next. The caller passes the same object to every refresh. */
 export type CatalogMemory = {
   /**
    * Where the switchboard's server part answers its RPC. With it, one `catalog` call reads the tracked sessions;
-   * without it, the catalog reads them through OpenCode's session API.
+   * without it, the catalog lists each open project's roots, as 0.2.1 did.
    */
   location?: { directory: string }
-  /** For reading sessions without the RPC; see `RootCounts`. */
-  counts?: RootCounts
   /** The server part has no `catalog` method (older than 0.2.2). Clear it to ask again, e.g. after a reconnect. */
   legacy?: boolean
   /**
@@ -114,7 +106,6 @@ export async function loadCatalog(
   current: string | null = null,
   memory: CatalogMemory = {},
 ) {
-  const counts = (memory.counts ??= new Map())
   const gone = (memory.gone ??= new Set())
   const run = limiter(CONCURRENCY)
   /** Sessions read this refresh, roots or not. */
@@ -173,16 +164,12 @@ export async function loadCatalog(
   }
 
   /**
-   * Without the RPC, loads a project's tracked roots: by listing the project's roots in pages while at least half
-   * of them are tracked, otherwise by reading each tracked root. A project whose root count is unknown lists one
-   * page first. A complete listing is authoritative: a tracked session it lacks is archived, moved, or gone.
+   * Without the RPC, lists a project's roots in pages, as 0.2.1 did; a short page is the last. The listing is
+   * authoritative: a tracked session it lacks is archived, moved, or gone, and has no row.
    */
-  async function hydrate(key: string, wanted: string[]) {
-    const count = counts.get(key)
-    const budget = count === undefined || count <= 2 * wanted.length ? Math.max(PAGE, 2 * wanted.length) : 0
-    let total = 0
+  async function list(key: string) {
     let cursor: string | undefined
-    while (total < budget) {
+    for (;;) {
       const result = await run(() =>
         client.session.list(
           cursor
@@ -196,34 +183,11 @@ export async function loadCatalog(
         ),
       )
       for (const session of result.data) add(info(session))
-      total += result.data.length
       cursor = result.cursor.next ?? undefined
-      if (!cursor || result.data.length < PAGE) {
-        counts.set(key, total)
-        return
-      }
+      if (!cursor || result.data.length < PAGE) return
     }
-    // More roots than listed: unless more are tracked by then, the next refresh reads each tracked root instead.
-    if (budget) counts.set(key, Math.max(total + 1, count ?? 0))
-    await Promise.all(
-      wanted
-        .filter((id) => !known.has(id))
-        .map((id) =>
-          read(id).then(
-            (session) => {
-              // A listing would show only this project's unarchived roots; the rows check the rest.
-              if (!session.parentID) roots.set(session.id, session)
-              else gone.add(id)
-            },
-            (error) => {
-              if (!notFound(error)) throw error
-              gone.add(id)
-            },
-          ),
-        ),
-    )
   }
-  /** The tracked sessions of open projects and the current one: in one RPC, else project by project. */
+  /** The tracked sessions of open projects and the current one: in one RPC, else by listing each project. */
   async function load() {
     const wanted = current && !trackedSet.has(current) ? [...tracked, current] : tracked
     const result = wanted.length ? await remote({ sessions: wanted }) : undefined
@@ -235,13 +199,8 @@ export async function loadCatalog(
       }
       return
     }
-    // Load projects in parallel; `run` bounds the requests in flight.
-    await Promise.all(
-      open.map(([key, roster]) => {
-        const wanted = [...new Set(roster.sessions)].filter((id) => !gone.has(id))
-        return wanted.length ? hydrate(key, wanted) : null
-      }),
-    )
+    // Load projects in parallel; `run` bounds the requests in flight. A project tracking nothing has no rows.
+    await Promise.all(open.map(([key, roster]) => (roster.sessions.length ? list(key) : null)))
   }
   /**
    * The root session ID of each of `ids`, leaving out an ID whose session is gone, and the errors of reads that
