@@ -1391,3 +1391,192 @@ test("the demo's menu stand-in closes on Esc without acting or quitting", async 
     await app.dispose()
   }
 })
+
+/** One open project, Work, with `count` sessions; `running` lists those that run, `details` those in a worktree. */
+function longList(count: number, running: number[] = [], details: number[] = []) {
+  const state = initialState()
+  state.projects.Work = { name: "Work", open: true, sessions: [] }
+  const sessions = Array.from({ length: count }, (_, index) => {
+    const id = `s${String(index).padStart(2, "0")}`
+    state.projects.Work!.sessions.push(id)
+    return {
+      id,
+      title: `Task ${id}`,
+      project: "Work",
+      projectName: "Work",
+      directory: "/work",
+      detail: details.includes(index) ? `/work/wt-${id}` : "main",
+      idle: 0,
+      viewed: 0,
+      running: running.includes(index),
+      status: running.includes(index) ? ("Running" as const) : ("Idle" as const),
+    }
+  })
+  return { state, sessions }
+}
+
+async function listPanel(input: ReturnType<typeof longList>, height: number) {
+  let controls!: Parameters<NonNullable<PanelProps["keys"]>>[0]
+  let setSessions!: (sessions: typeof input.sessions) => void
+  const noop = () => {}
+  const app = await testRender(
+    () => {
+      const [sessions, set] = createSignal(input.sessions)
+      setSessions = set
+      return (
+        <InboxPanel
+          state={input.state}
+          sessions={sessions()}
+          colors={palette}
+          error=""
+          loading={false}
+          focused={false}
+          current={null}
+          act={noop}
+          open={noop}
+          close={noop}
+          help={noop}
+          diagnostics={noop}
+          keys={(value) => {
+            controls = value
+          }}
+        />
+      )
+    },
+    { width: 40, height },
+  )
+  await app.renderOnce()
+  await app.renderOnce()
+  return { app, controls, setSessions }
+}
+
+/** Renderables in the tree. */
+function renderables(app: Awaited<ReturnType<typeof testRender>>) {
+  let count = 0
+  const walk = (node: { getChildren(): unknown[] }) => {
+    count++
+    for (const child of node.getChildren()) walk(child as typeof node)
+  }
+  walk(app.renderer.root)
+  return count
+}
+
+test("the panel builds only the rows on screen, and scrolling shows the others with the same scroll range", async () => {
+  const { app } = await listPanel(longList(60, [], [10, 30, 59]), 14)
+  try {
+    const built = renderables(app)
+    expect(app.captureCharFrame()).toContain("Task s00")
+    expect(app.captureCharFrame()).not.toContain("Task s10")
+    // Sixty rows of several renderables each would far exceed this.
+    expect(built).toBeLessThan(80)
+    // One burst, with no frame between the wheel events, as a fast wheel sends them.
+    for (let i = 0; i < 150; i++) await app.mockMouse.scroll(5, 5, "down")
+    await app.renderOnce()
+    await app.renderOnce()
+    const bottom = app.captureCharFrame()
+    expect(bottom).toContain("Task s59")
+    expect(bottom).toContain("wt-s59")
+    expect(bottom).not.toContain("Task s00")
+    expect(renderables(app)).toBeLessThan(80)
+    // Each row's lines, and one blank line between rows, all reachable: the last row ends on the last line.
+    const lines = bottom.split("\n")
+    expect(lines.findIndex((line) => line.includes("wt-s59"))).toBe(lines.length - 3)
+    for (let i = 0; i < 150; i++) await app.mockMouse.scroll(5, 5, "up")
+    await app.renderOnce()
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toContain("Task s00")
+    expect(renderables(app)).toBe(built)
+  } finally {
+    await app.dispose()
+  }
+})
+
+test("a row that gains or loses its worktree line redraws in place", async () => {
+  const input = longList(4)
+  const { app, setSessions } = await listPanel(input, 14)
+  try {
+    const before = app.captureCharFrame()
+    setSessions(
+      input.sessions.map((session) => (session.id === "s01" ? { ...session, detail: "/w/wt" } : session)),
+    )
+    await app.renderOnce()
+    const lines = app.captureCharFrame().split("\n")
+    const title = lines.findIndex((line) => line.includes("Task s01"))
+    expect(lines[title + 1]!.trim()).toBe("wt")
+    expect(lines[title + 3]).toContain("Task s02")
+    setSessions(input.sessions)
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toBe(before)
+  } finally {
+    await app.dispose()
+  }
+})
+
+/** Counts the panel's 80 ms clocks while it runs; with no lit row, no marquee runs one. */
+function spinnerClocks() {
+  const set = globalThis.setInterval
+  const clear = globalThis.clearInterval
+  const clocks = new Set<unknown>()
+  globalThis.setInterval = ((run: () => void, delay?: number) => {
+    const timer = set(run, delay)
+    if (delay === 80) clocks.add(timer)
+    return timer
+  }) as typeof setInterval
+  globalThis.clearInterval = ((timer: Parameters<typeof clearInterval>[0]) => {
+    clocks.delete(timer)
+    clear(timer)
+  }) as typeof clearInterval
+  return {
+    clocks,
+    restore() {
+      globalThis.setInterval = set
+      globalThis.clearInterval = clear
+    },
+  }
+}
+
+test("a running row just below the panel's last line does not tick the spinner", async () => {
+  const { clocks, restore } = spinnerClocks()
+  // 14 lines: a top margin, 12 lines of rows (a heading and five sessions), and the footer. Session s05 is the
+  // seventh row, on the 13th line of the content.
+  const { app } = await listPanel(longList(30, [5]), 14)
+  try {
+    expect(app.captureCharFrame()).not.toContain("Task s05")
+    expect(clocks.size).toBe(0)
+  } finally {
+    await app.dispose()
+    restore()
+  }
+})
+
+test("the spinner ticks only while a running row is on screen", async () => {
+  const { clocks, restore } = spinnerClocks()
+  const { app, controls } = await listPanel(longList(30, [29]), 14)
+  try {
+    const glyph = () => app.captureCharFrame().match(/(\S) Task s29/)?.[1]
+    // Scrolled out of view: no clock.
+    expect(glyph()).toBeUndefined()
+    expect(clocks.size).toBe(0)
+    // In view, by the cursor: it ticks.
+    controls.reveal("session:s29")
+    await app.renderOnce()
+    expect(clocks.size).toBe(1)
+    const first = glyph()
+    expect(first).toBe("⠋")
+    await Bun.sleep(200)
+    await app.renderOnce()
+    expect(glyph()).not.toBe(first)
+    // Scrolled away with the wheel: it stops, and comes back with the row.
+    for (let i = 0; i < 40; i++) await app.mockMouse.scroll(5, 5, "up")
+    await app.renderOnce()
+    expect(glyph()).toBeUndefined()
+    expect(clocks.size).toBe(0)
+    for (let i = 0; i < 40; i++) await app.mockMouse.scroll(5, 5, "down")
+    await app.renderOnce()
+    expect(glyph()).toBeDefined()
+    expect(clocks.size).toBe(1)
+  } finally {
+    await app.dispose()
+    restore()
+  }
+})

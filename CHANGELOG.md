@@ -13,6 +13,15 @@ working, and are never worse than 0.2.1.
   184 ms. Against a 0.2.1 server part, the panel makes the same requests as 0.2.1 (plus one, once, to find
   the new method missing), now loading the projects in parallel: 287 ms instead of 576 ms in the first case,
   and 95 ms instead of 184 ms in the second.
+- Switching sessions with the switchboard open is faster. OpenCode rebuilds the panel on every switch, and it
+  now builds only the rows on screen: with 45 tracked sessions in a 45-line terminal, that takes 22 ms instead of
+  46 ms, and with 90 tracked sessions, 22 ms instead of 67 ms. A session opened from OpenCode itself (Ctrl+O, its
+  session list) gets the panel back as the conversation appears, instead of after the switchboard's server
+  round trip.
+- The spinner of a running session ticks only while it is on screen. Scrolled out of view, it no longer redraws
+  the terminal 12.5 times a second.
+- `<leader>i` with the switchboard already open no longer reloads its sessions when a reload is under way or
+  finished less than 2 seconds ago.
 
 ## 0.2.1 (2026-11-06)
 

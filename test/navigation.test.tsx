@@ -66,6 +66,8 @@ async function harness(
     unlisted?: boolean
     /** The server part answers the catalog method, as 0.2.2 and later do; otherwise it lacks it. */
     catalog?: boolean
+    /** `ui.panel.current` reports the panel the host shows, as OpenCode does, instead of none. */
+    reportsPanel?: boolean
   } = {},
 ) {
   // What the switchboard's RPC calls reject with; a test can change it while the TUI runs.
@@ -293,8 +295,12 @@ async function harness(
           setPanel(name)
           return true
         },
-        // Reported as closed, as before this field was modeled, so opening the switchboard always remounts it.
-        current: () => undefined,
+        // Reported as closed by default, as before this field was modeled, so opening the switchboard always
+        // remounts it.
+        current: () => {
+          const name = panel()
+          return options.reportsPanel && name ? { name, sessionID: "b" } : undefined
+        },
         close: () => setPanel(undefined),
       },
       tabs: { enabled: () => false },
@@ -648,8 +654,9 @@ test("a session OpenCode opens itself ends with the switchboard panel shown agai
     await run.frame()
     expect(run.panel()).toBe("switchboard")
     run.hostOpen("c")
-    expect(run.panel()).toBeUndefined()
-    expect(await until(() => run.panel() === "switchboard")).toBe(true)
+    // Shown again in the same tick as the route change, so the host mounts it with the new session view.
+    expect(run.panel()).toBe("switchboard")
+    expect(await until(() => run.actions.at(-1)?.type === "visit")).toBe(true)
     expect(run.actions.at(-1)).toEqual({ type: "visit", sessionID: "c", observed: 0 })
     // Going back after closing the current row keeps the panel too, without handing focus over.
     await run.open() // Moves the cursor to the current session, c.
@@ -664,13 +671,75 @@ test("a session OpenCode opens itself ends with the switchboard panel shown agai
   }
 })
 
+test("a session OpenCode opens shows the panel and hands focus to it before its visit lands", async () => {
+  const visit = Promise.withResolvers<void>()
+  const focus = fakeFocus()
+  const options: Parameters<typeof harness>[0] = { members: ["a", "b", "c"], focus, sidePanel: true }
+  const run = await harness(options)
+  try {
+    await run.open()
+    await run.frame()
+    options.visitGate = visit.promise
+    run.dispatched.length = 0
+    run.hostOpen("c")
+    expect(run.panel()).toBe("switchboard")
+    expect(await until(() => run.actions.at(-1)?.type === "visit")).toBe(true)
+    // The conversation gets focus while the visit is still on its way.
+    expect(await until(() => run.dispatched.includes(FOCUS_CONVERSATION))).toBe(true)
+    expect(run.saved().sessions.c).toBeUndefined()
+    // Closed by the host while the visit is on its way, the panel is shown again once it lands, without a second
+    // focus handoff.
+    run.hostClosePanel()
+    visit.resolve()
+    expect(await until(() => run.panel() === "switchboard")).toBe(true)
+    expect(run.saved().sessions.c).toBeDefined()
+    await Bun.sleep(10)
+    expect(run.dispatched.filter((command) => command === FOCUS_CONVERSATION)).toHaveLength(1)
+  } finally {
+    visit.resolve()
+    await run.dispose()
+  }
+})
+
+test("opening the open switchboard skips the refresh while one is on its way or has just landed", async () => {
+  const options: Parameters<typeof harness>[0] = { reportsPanel: true }
+  const run = await harness(options)
+  const now = performance.now.bind(performance)
+  let skew = 0
+  performance.now = () => now() + skew
+  try {
+    await run.open()
+    await run.frame()
+    const reads = run.activeReads()
+    // The last refresh just landed.
+    await run.open()
+    expect(run.activeReads()).toBe(reads)
+    // Two seconds later, it refreshes again; a second open while that refresh is on its way waits for nothing.
+    skew += 2_000
+    const snapshot = Promise.withResolvers<void>()
+    options.snapshotGate = snapshot.promise
+    const first = run.open()
+    await run.open()
+    snapshot.resolve()
+    await first
+    await Bun.sleep(10)
+    expect(run.activeReads()).toBe(reads + 1)
+    expect(run.app.captureCharFrame()).toContain("Task b")
+  } finally {
+    performance.now = now
+    await run.dispose()
+  }
+})
+
 test("another client's change never opens the panel here", async () => {
   const run = await harness({ members: ["a", "b", "c"] })
   try {
     await run.open()
     await run.frame()
     run.hostOpen("c")
-    expect(await until(() => run.panel() === "switchboard")).toBe(true)
+    expect(await until(() => run.saved().sessions.c !== undefined)).toBe(true)
+    await Bun.sleep(10)
+    expect(run.panel()).toBe("switchboard")
     // The host closes the side panel while the switchboard stays enabled; another TUI then changes shared state.
     run.hostClosePanel()
     await run.rpc.act({ type: "visit", sessionID: "a", observed: 0 })

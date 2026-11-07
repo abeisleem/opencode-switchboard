@@ -44,6 +44,8 @@ const PANEL = "switchboard"
 const POLL = 15_000
 /** While the connection is down, the first retry waits this long, then doubles up to `POLL`. */
 const RETRY = 2_000
+/** Opening the switchboard while it is open skips the refresh if the last one finished this recently. */
+const FRESH = 2_000
 
 type Controls = Parameters<NonNullable<PanelProps["keys"]>>[0]
 type LocationProject = { directory: string; project: { id: string; canonical: string } }
@@ -141,6 +143,8 @@ export default Plugin.define({
     let retries = 0
     let membership = ""
     let refreshAgain = false
+    // When the last refresh succeeded, by `performance.now()`.
+    let refreshed = -Infinity
     // Settles once every action this TUI has sent so far has returned and been accepted.
     let acting: Promise<void> = Promise.resolve()
     let lastCatalog = ""
@@ -318,6 +322,7 @@ export default Plugin.define({
         setReconnecting(false)
         retries = 0
         setIssues(result.issues)
+        refreshed = performance.now()
       } catch (cause) {
         refreshFailed("refresh", cause)
       } finally {
@@ -365,7 +370,8 @@ export default Plugin.define({
           void revealCurrent()
         } else showPanel()
         suggestDisablingTabs()
-        await refresh()
+        // Already open, its rows are current: one refresh is on its way, or one has just landed.
+        if (!alreadyOpen || (!loading() && performance.now() - refreshed >= FRESH)) await refresh()
         // Startup (--session), and reopening after navigating while the switchboard was closed, adopt the route.
         await listViewing()
       } finally {
@@ -444,8 +450,23 @@ export default Plugin.define({
         ctx.ui.router.navigate(selected ? { type: "session", sessionID: selected } : { type: "home" })
       }
     }
+    /**
+     * Whether a visit to the route's session ends with the panel shown: a session this TUI shows, unless it is a
+     * subagent of the current session, whose visit records nothing.
+     */
+    function visitShowsPanel(id: string) {
+      const route = ctx.ui.router.current()
+      if (stopped || !enabled || route.type !== "session" || route.sessionID !== id) return false
+      const root = ctx.data.session.root(id)
+      return !(root !== id && root === history.current && projectOf(state(), root))
+    }
     async function visit(id: string) {
+      // A navigation OpenCode drove (Ctrl+O, its session list) can replace the session view and close the side
+      // panel, showing the native sidebar instead. While the switchboard is open, a visit shows it again at once,
+      // in the tick the route changes: the host then mounts the destination and the panel together, as a switch
+      // from the panel does. Only this TUI's own visits do this; another TUI's changes never open anything here.
       arrive(id, true)
+      if (visitShowsPanel(id)) showPanel()
       // A draft session stays arriving: its `session.created` visits it again.
       let draft = false
       try {
@@ -464,10 +485,8 @@ export default Plugin.define({
         // A subagent of the current session is the same work context: record nothing, unless its row is gone.
         if (root !== id && root === history.current && projectOf(state(), root)) return
         show(root)
-        // A navigation OpenCode drove (Ctrl+O, its session list) can replace the session view and close the side
-        // panel, showing the native sidebar instead. While the switchboard is open, end every visit with it shown.
-        // Only this TUI's own visits do this; another TUI's changes never open anything here.
         if (!(await act({ type: "visit", sessionID: root, observed }))) return
+        // Ends with it shown too, in case the host closed it meanwhile.
         if (!stopped && enabled && ctx.ui.router.current().type === "session") showPanel()
       } catch (cause) {
         // The host navigates optimistically, before its create request commits.
