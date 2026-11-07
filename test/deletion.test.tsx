@@ -90,6 +90,7 @@ async function harness(ids?: string[]) {
       form: { list: async () => ({ data: [] }) },
     },
     data: {
+      location: { vcs: { info: () => undefined } },
       session: {
         root: (id: string) => id,
         family: () => [],
@@ -109,6 +110,7 @@ async function harness(ids?: string[]) {
       store: (_key: string, options: { initial: unknown }) => [options.initial, noop],
     },
     ui: {
+      format: { path: (value: string) => value },
       router: {
         current: route,
         navigate: (destination: Parameters<Plugin.Context["ui"]["router"]["navigate"]>[0]) =>

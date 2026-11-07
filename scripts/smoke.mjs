@@ -28,6 +28,8 @@ const menu = process.argv.includes("menu")
 const newSession = process.argv.includes("newsession")
 // Opt-in coverage of a second client closing the viewed row (a toast, then leader+i): node scripts/smoke.mjs session norow
 const noRow = process.argv.includes("norow")
+// Opt-in coverage of the footer's location label and its branch: node scripts/smoke.mjs session location
+const footerLocation = process.argv.includes("location")
 // A real separate server, so a second client can change the shared state.
 const remoteServer = navigation || noRow
 const activation = process.argv.includes("activate") || deletion || navigation
@@ -53,7 +55,8 @@ if (bundled) {
 } else {
   await writeFile(`${directory}/.opencode/opencode.json`, JSON.stringify({ plugins: [plugin] }))
 }
-const wide = process.argv.includes("session") || deletion || navigation || menu || newSession || noRow
+const wide =
+  process.argv.includes("session") || deletion || navigation || menu || newSession || noRow || footerLocation
 // A second project for the new-session scenario: a git repository, so its project is keyed by ID, not directory.
 const second = `${root}/second`
 if (newSession) {
@@ -145,6 +148,22 @@ async function create(title, at = directory) {
           { cwd: directory, env, encoding: "utf8" },
         ),
       )
+}
+// The location scenario's project is a git repository on `main`, so the footer shows a branch.
+if (footerLocation) {
+  const git = (...args) => execFileSync("git", args, { cwd: directory, stdio: "pipe" })
+  git("init", "-q", "-b", "main")
+  git(
+    "-c",
+    "user.name=smoke",
+    "-c",
+    "user.email=smoke@example.invalid",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "init",
+  )
 }
 let session
 let previous
@@ -339,6 +358,31 @@ async function noRowScenario() {
   child.write("\x18i")
   await wait(() => current("Isolated panel smoke"))
 }
+/** The footer line with the location label and `? help`, by the label's last part, or -1. */
+function footerRow(label) {
+  return screen()
+    .split("\n")
+    .findLastIndex((line) => new RegExp(`/${label}\\s+\\? help`).test(line))
+}
+/**
+ * The footer shows OpenCode's location label, `<directory>:<branch>`, and follows a branch switch. It is plain text:
+ * a click opens nothing.
+ */
+async function locationScenario() {
+  await wait(() => footerRow("project:main") >= 0)
+  execFileSync("git", ["switch", "-q", "-c", "smoke-branch"], { cwd: directory, stdio: "pipe" })
+  await wait(() => footerRow("project:smoke-branch") >= 0)
+  const y = footerRow("project:smoke-branch")
+  const x =
+    screen()
+      .split("\n")
+      [y].search(/\S*project:smoke-branch/) + 1
+  child.write(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`)
+  await new Promise((resolve) => setTimeout(resolve, 1_000))
+  if (screen().includes("Working directory") || screen().includes("Worktrees"))
+    throw new Error(`A click on the location opened a dialog:\n${screen()}`)
+  if (footerRow("project:smoke-branch") < 0) throw new Error(`The location did not stay:\n${screen()}`)
+}
 let passed = false
 try {
   if (!autoOpen) {
@@ -407,6 +451,8 @@ try {
     child.write("\r")
     await composerFocused("Another session")
     if (current("Isolated panel smoke")) throw new Error("The right-clicks moved the panel cursor")
+  } else if (footerLocation) {
+    await locationScenario()
   } else if (newSession) {
     await newSessionScenario()
   } else if (noRow) {
@@ -499,7 +545,7 @@ try {
     frame,
   )
   console.log(
-    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""}${menu ? ", right-click menu from the composer" : ""}${newSession ? ", new session with n and the heading menu" : ""}${noRow ? ", toast after another client closes the row, then leader+i" : ""})`,
+    `${bundled ? "Bundled " : ""}${session ? "side panel" : "home route"} smoke passed (${cols} columns${autoOpen ? ", auto-open" : ""}${scoped ? ", project discovery only" : ""}${shortcut ? ", leader+i" : ""}${activation ? ", keyboard/mouse activation" : ""}${deletion ? ", native deletion fallback" : ""}${navigation ? ", remote startup and leader+w" : ""}${menu ? ", right-click menu from the composer" : ""}${newSession ? ", new session with n and the heading menu" : ""}${noRow ? ", toast after another client closes the row, then leader+i" : ""}${footerLocation ? ", footer location and its branch" : ""})`,
   )
   passed = true
 } finally {

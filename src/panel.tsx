@@ -23,6 +23,7 @@ import {
 } from "./model"
 import { reconcileSelection, rowKey, type SelectionMemory } from "./selection"
 import { RowMenu, type MenuColors, type MenuControls, type MenuItem } from "./menu"
+import { FilePath } from "./file-path"
 
 /** Muted rows, matching hover/keyboard fills, and a bold current title on the bare surface. */
 export type Palette = {
@@ -181,6 +182,11 @@ export type PanelProps = {
   error: string
   /** A muted footer line for a condition that fixes itself, such as reconnecting; an error replaces it. */
   notice?: string
+  /**
+   * The footer's resting line, as OpenCode's sidebar footer: `<directory>:<branch>`, or the directory alone without
+   * git. An error or a notice replaces it.
+   */
+  location?: string
   loading: boolean
   /** Whether the panel has keyboard focus; clicks while unfocused leave focus where it is. */
   focused: boolean
@@ -452,6 +458,7 @@ export function InboxPanel(props: PanelProps) {
     if (session.attention) return ["~", props.colors.muted]
     return ["", props.colors.muted]
   }
+  const [locationWidth, setLocationWidth] = createSignal(0)
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0} paddingTop={1}>
       <scrollbox ref={scroll} flexGrow={1} minHeight={0}>
@@ -649,18 +656,41 @@ export function InboxPanel(props: PanelProps) {
           </box>
         </Show>
       </scrollbox>
-      <box height={1} flexShrink={0} flexDirection="row" paddingLeft={1} paddingRight={1}>
-        <text
-          selectable={false}
+      <box height={1} flexShrink={0} flexDirection="row" paddingLeft={1} paddingRight={1} gap={1}>
+        <box
           flexGrow={1}
+          flexShrink={1}
           minWidth={0}
-          wrapMode="none"
-          fg={props.error ? props.colors.error : props.colors.muted}
-          onMouseDown={left(props.diagnostics)}
+          overflow="hidden"
+          onSizeChange={function (this: BoxRenderable) {
+            // As the prompt footer sizes its location: measured, then applied after layout.
+            const width = this.width
+            queueMicrotask(() => setLocationWidth(width))
+          }}
         >
-          {props.error ? `! ${props.error}` : (props.notice ?? "")}
-        </text>
-        <text selectable={false} onMouseDown={left(props.help)}>
+          {/* The location rests here; an error or a notice replaces it while it lasts. */}
+          <Show
+            when={props.error || props.notice}
+            fallback={
+              <Show when={props.location}>
+                {/* Plain text: OpenCode's click menu cannot reach its workspace manager from a focused panel. */}
+                {(label) => (
+                  <FilePath value={label()} maxWidth={locationWidth()} fg={rgba(props.colors.muted)} />
+                )}
+              </Show>
+            }
+          >
+            <text
+              selectable={false}
+              wrapMode="none"
+              fg={props.error ? props.colors.error : props.colors.muted}
+              onMouseDown={left(props.diagnostics)}
+            >
+              {props.error ? `! ${props.error}` : (props.notice ?? "")}
+            </text>
+          </Show>
+        </box>
+        <text selectable={false} flexShrink={0} onMouseDown={left(props.help)}>
           <span style={{ fg: props.colors.muted }}>?</span>
           <span style={{ fg: props.colors.text }}> help</span>
         </text>

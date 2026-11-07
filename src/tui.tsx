@@ -595,6 +595,17 @@ export default Plugin.define({
             })
             .then(closed),
       )
+    /**
+     * As OpenCode's sidebar footer: the location this TUI shows (the viewed conversation's, else the home screen's),
+     * with its branch. The host keeps the branch current.
+     */
+    function locationLabel() {
+      const location = ctx.location
+      if (!location) return undefined
+      const value = ctx.ui.format.path(location.directory)
+      const branch = ctx.data.location.vcs.info(location)?.branch.current
+      return branch ? `${value}:${branch}` : value
+    }
     function panel(
       focused: () => boolean,
       surface: () => "panel" | "fullscreen" = () => "fullscreen",
@@ -620,6 +631,7 @@ export default Plugin.define({
             sessions={live.shown()}
             error={error() || (reconnecting() ? "" : refreshError())}
             notice={reconnecting() ? RECONNECTING : ""}
+            location={locationLabel()}
             loading={loading()}
             focused={focused()}
             current={viewing()}
