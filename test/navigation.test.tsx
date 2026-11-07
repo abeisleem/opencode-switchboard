@@ -70,6 +70,8 @@ async function harness(
     location?: () => { directory: string }
     /** The current git branch of a location, as the host's VCS info reports it. */
     branch?: (directory: string) => string | undefined
+    /** `ui.panel.current` reports the panel the host shows, as OpenCode does, instead of none. */
+    reportsPanel?: boolean
   } = {},
 ) {
   // What the switchboard's RPC calls reject with; a test can change it while the TUI runs.
@@ -309,8 +311,12 @@ async function harness(
           setPanel(name)
           return true
         },
-        // Reported as closed, as before this field was modeled, so opening the switchboard always remounts it.
-        current: () => undefined,
+        // Reported as closed by default, as before this field was modeled, so opening the switchboard always
+        // remounts it.
+        current: () => {
+          const name = panel()
+          return options.reportsPanel && name ? { name, sessionID: "b" } : undefined
+        },
         close: () => setPanel(undefined),
       },
       tabs: { enabled: () => false },
@@ -707,6 +713,36 @@ test("a session OpenCode opens shows the panel and hands focus to it before its 
     expect(run.dispatched.filter((command) => command === FOCUS_CONVERSATION)).toHaveLength(1)
   } finally {
     visit.resolve()
+    await run.dispose()
+  }
+})
+
+test("opening the open switchboard skips the refresh while one is on its way or has just landed", async () => {
+  const options: Parameters<typeof harness>[0] = { reportsPanel: true }
+  const run = await harness(options)
+  const now = performance.now.bind(performance)
+  let skew = 0
+  performance.now = () => now() + skew
+  try {
+    await run.open()
+    await run.frame()
+    const reads = run.activeReads()
+    // The last refresh just landed.
+    await run.open()
+    expect(run.activeReads()).toBe(reads)
+    // Two seconds later, it refreshes again; a second open while that refresh is on its way waits for nothing.
+    skew += 2_000
+    const snapshot = Promise.withResolvers<void>()
+    options.snapshotGate = snapshot.promise
+    const first = run.open()
+    await run.open()
+    snapshot.resolve()
+    await first
+    await Bun.sleep(10)
+    expect(run.activeReads()).toBe(reads + 1)
+    expect(run.app.captureCharFrame()).toContain("Task b")
+  } finally {
+    performance.now = now
     await run.dispose()
   }
 })

@@ -44,6 +44,8 @@ const PANEL = "switchboard"
 const POLL = 15_000
 /** While the connection is down, the first retry waits this long, then doubles up to `POLL`. */
 const RETRY = 2_000
+/** Opening the switchboard while it is open skips the refresh if the last one finished this recently. */
+const FRESH = 2_000
 
 type Controls = Parameters<NonNullable<PanelProps["keys"]>>[0]
 type LocationProject = { directory: string; project: { id: string; canonical: string } }
@@ -141,6 +143,8 @@ export default Plugin.define({
     let retries = 0
     let membership = ""
     let refreshAgain = false
+    // When the last refresh succeeded, by `performance.now()`.
+    let refreshed = -Infinity
     // Settles once every action this TUI has sent so far has returned and been accepted.
     let acting: Promise<void> = Promise.resolve()
     let lastCatalog = ""
@@ -318,6 +322,7 @@ export default Plugin.define({
         setReconnecting(false)
         retries = 0
         setIssues(result.issues)
+        refreshed = performance.now()
       } catch (cause) {
         refreshFailed("refresh", cause)
       } finally {
@@ -365,7 +370,8 @@ export default Plugin.define({
           void revealCurrent()
         } else showPanel()
         suggestDisablingTabs()
-        await refresh()
+        // Already open, its rows are current: one refresh is on its way, or one has just landed.
+        if (!alreadyOpen || (!loading() && performance.now() - refreshed >= FRESH)) await refresh()
         // Startup (--session), and reopening after navigating while the switchboard was closed, adopt the route.
         await listViewing()
       } finally {
