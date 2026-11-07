@@ -25,9 +25,19 @@ async function backend(ids = ["a", "b", "c"]) {
     session: {
       get: async ({ sessionID }: { sessionID: string }) => {
         reads.push(sessionID)
-        if (!existing.has(sessionID)) throw new Error("SessionNotFoundError")
+        // As OpenCode's server rejects in-process.
+        if (!existing.has(sessionID))
+          throw Object.assign(new Error("Session not found"), { _tag: "Session.NotFoundError" })
         return { id: sessionID, projectID: "work", location: { directory: "/work" }, time: {} }
       },
+      list: async () => ({
+        data: [...existing].map((id) => ({
+          id,
+          projectID: "work",
+          location: { directory: "/work" },
+          time: {},
+        })),
+      }),
     },
     rpc: {
       register: async (_contract: unknown, handlers: typeof rpc) => {

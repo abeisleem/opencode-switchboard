@@ -2,6 +2,7 @@ import { Plugin } from "@opencode/plugin"
 import { Switchboard } from "./rpc"
 import { createInboxStore } from "./store"
 import { reduce, type Admission } from "./model"
+import { readCatalog, type ListMemory } from "./sessions"
 
 export default Plugin.define({
   id: "opencode-switchboard",
@@ -36,8 +37,20 @@ export default Plugin.define({
       }
       return reduce(state, action, admission)
     })
+    // Which projects the catalog method reads session by session; see `ListMemory`.
+    const lists: ListMemory = new Map()
     const registration = await ctx.rpc.register(Switchboard, {
       snapshot: () => store.snapshot(),
+      // Read-only: it never changes the state, so it announces nothing.
+      catalog: async (input) => {
+        const state = await store.snapshot()
+        return readCatalog(
+          { get: (sessionID) => ctx.session.get({ sessionID }), list: (filter) => ctx.session.list(filter) },
+          input,
+          Object.entries(state.projects).map(([key, project]) => [key, project.sessions]),
+          lists,
+        )
+      },
       act: async (action) => {
         const next = await store.act(action)
         await registration.events.emit("changed", { revision: next.revision })

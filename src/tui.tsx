@@ -18,7 +18,7 @@ import { Switchboard } from "./rpc"
 import { createClientState } from "./client"
 import { actionErrorText, errorDetails, errorText, isTransportError, RECONNECTING } from "./error-text"
 import { initialState, parkedKey, projectOf, type Action, type Session, type State } from "./model"
-import { liveSession, loadCatalog } from "./catalog"
+import { liveSession, loadCatalog, type CatalogMemory } from "./catalog"
 import type { Attention } from "./attention"
 import { HELP_COMMANDS, HelpDialog, helpShortcuts } from "./help"
 import { InboxPanel, type PanelProps } from "./panel"
@@ -80,6 +80,8 @@ export default Plugin.define({
     const [reconnecting, setReconnecting] = createSignal(false)
     const [issues, setIssues] = createSignal<string[]>([])
     const attention = new Map<string, Attention>()
+    // The catalog reads tracked sessions through this location's server part, which also answers the RPC.
+    const catalogMemory: CatalogMemory = { location: options.location }
     // Keep an opaque mutable cursor across both panel remounts and plugin reloads.
     // Map entries are not wrapped in Solid's read-only store proxies.
     const [local] = ctx.storage.memory("panel-selection", {
@@ -194,6 +196,8 @@ export default Plugin.define({
       const lost = isTransportError(cause)
       setReconnecting(lost)
       if (!lost) return
+      // The server may come back with a newer server part: ask it for the catalog method again.
+      catalogMemory.legacy = false
       clearTimeout(timer)
       timer = setTimeout(poll, Math.min(RETRY * 2 ** retries++, POLL))
     }
@@ -302,7 +306,7 @@ export default Plugin.define({
       try {
         // The catalog loads for this state next, so its membership change needs no second refresh.
         accept(await rpc.snapshot({}, options), true)
-        const result = await loadCatalog(ctx.client, state(), attention, history.current)
+        const result = await loadCatalog(ctx.client, state(), attention, history.current, catalogMemory)
         if (stopped) return
         // Identical catalogs must not re-render the panel; most refreshes change nothing.
         const catalog = JSON.stringify(result.sessions)

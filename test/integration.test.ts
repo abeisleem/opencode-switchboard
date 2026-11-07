@@ -2,8 +2,10 @@ import { expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { OpenCode } from "@opencode/client"
+import { Rpc } from "@opencode/plugin/rpc"
+import { z } from "zod"
 import { Switchboard } from "../src/rpc"
-import { loadCatalog } from "../src/catalog"
+import { loadCatalog, type CatalogMemory } from "../src/catalog"
 
 test("real private server loads only in its sandbox, shares actions, and persists on restart", async () => {
   const root = await mkdtemp("/tmp/opencode/inbox-integration-")
@@ -82,6 +84,37 @@ test("real private server loads only in its sandbox, shares actions, and persist
     const catalog = await loadCatalog(client, marked)
     expect(catalog.sessions.map((s) => s.id)).toContain(b.id)
     expect(catalog.warning).toBe("")
+    // The catalog method reads sessions in-process: roots only, the rest reported missing, subagents resolved.
+    const child = await client.session.create({ title: "Subagent", parentID: a.id, location: { directory } })
+    const removed = await client.session.create({ title: "Removed", location: { directory } })
+    await client.session.remove({ sessionID: removed.id })
+    const answer = await rpc.catalog(
+      { sessions: [a.id, b.id, child.id, removed.id], roots: [child.id, b.id, removed.id] },
+      options,
+    )
+    expect(answer.sessions.map((s) => [s.id, s.title, s.directory])).toEqual([
+      [a.id, "Inbox integration A", a.location.directory],
+      [b.id, "Inbox integration B", b.location.directory],
+    ])
+    expect(answer.missing).toEqual([child.id, removed.id])
+    expect(answer.roots).toEqual({ [child.id]: a.id, [b.id]: b.id })
+    // Through the method, the catalog shows the same rows as reading sessions itself, and keeps using it.
+    const memory: CatalogMemory = { location: options.location }
+    const viaRpc = await loadCatalog(client, marked, undefined, null, memory)
+    expect(memory.legacy).toBeUndefined()
+    const byId = (sessions: typeof viaRpc.sessions) =>
+      sessions.filter((s) => s.id === a.id || s.id === b.id).toSorted((x, y) => x.id.localeCompare(y.id))
+    expect(byId(viaRpc.sessions)).toEqual(byId(catalog.sessions))
+    // A method the server part lacks fails as an older server part's missing catalog method does, which is
+    // what the catalog's fallback detects.
+    const Probe = Rpc.define({
+      id: "opencode-switchboard",
+      methods: { absent: { input: z.object({}), output: z.object({}) } },
+      events: {},
+    })
+    await expect(client.rpc(Probe).absent({}, options)).rejects.toMatchObject({
+      type: "rpc.method_not_found",
+    })
     const project = a.projectID === "global" ? directory : a.projectID
     expect(marked.projects[project]?.sessions).toContain(a.id)
     expect(marked.projects[project]?.sessions).toContain(b.id)
