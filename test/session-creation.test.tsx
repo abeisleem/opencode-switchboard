@@ -48,7 +48,7 @@ async function fixture(projectID: string, options: { listed?: boolean } = {}) {
         saved = value
       },
     },
-    session: { get },
+    session: { get, list: async () => ({ data: created ? [info] : [] }) },
     rpc: {
       register: async (_contract: unknown, handlers: typeof rpc) => {
         rpc = handlers

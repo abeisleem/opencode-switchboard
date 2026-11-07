@@ -111,7 +111,11 @@ async function harness(
         saved = value
       },
     },
-    session: { get },
+    session: {
+      get,
+      // The server part's in-process list, which the catalog method uses.
+      list: async () => ({ data: options.unlisted ? [] : sessions }),
+    },
     rpc: {
       register: async (_contract: unknown, handlers: typeof rpc) => {
         rpc = handlers
