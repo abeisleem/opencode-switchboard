@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import type { OpenCodeClient } from "@opencode/client"
-import { loadCatalog, type RootCounts } from "../src/catalog"
+import { loadCatalog, type CatalogMemory, type RootCounts } from "../src/catalog"
+import { readCatalog } from "../src/sessions"
 import { initialState, rows, type State } from "../src/model"
 
 type Fake = {
@@ -25,6 +26,11 @@ function server(
     active?: string[]
     approvals?: Record<string, string[]>
     questions?: Record<string, string[]>
+    /**
+     * The server part's `catalog` method: the real one over these sessions, missing (an older server part), or
+     * failing with an RPC error or a lost connection.
+     */
+    rpc?: "catalog" | "legacy" | "internal" | "transport"
   } = {},
 ) {
   const calls: { method: string; input: unknown }[] = []
@@ -42,6 +48,25 @@ function server(
   const ordered = sessions.toSorted((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
   const filters = new Map<string, Fake[]>()
   const fake = {
+    rpc: () => ({
+      catalog: (input: { sessions: string[]; roots?: string[] }, rpcOptions: unknown) =>
+        call("rpc.catalog", { input, options: rpcOptions }, () => {
+          if (options.rpc === "legacy")
+            throw {
+              type: "rpc.method_not_found",
+              message: "Unknown RPC method: opencode-switchboard.catalog",
+            }
+          if (options.rpc === "internal") throw { type: "rpc.internal", message: "RPC call failed" }
+          if (options.rpc === "transport")
+            throw Object.assign(new Error("ECONNRESET"), { reason: "Transport" })
+          // As in-process on the server: a missing session rejects with the server's own not-found tag.
+          return readCatalog(async (id) => {
+            const session = sessions.find((session) => session.id === id)
+            if (!session) throw { _tag: "Session.NotFoundError", sessionID: id }
+            return session
+          }, input)
+        }),
+    }),
     project: { list: () => call("project.list", undefined, () => options.projects ?? []) },
     session: {
       active: () =>
@@ -139,13 +164,9 @@ test("a short page is a project's last: no request follows it", async () => {
 test("an unknown project lists one page, then reads the tracked roots it did not show", async () => {
   const fake = server(roots(150), { projects: WORK })
   const counts: RootCounts = new Map()
-  const result = await loadCatalog(
-    fake.client,
-    tracking({ work: ["work-0", "work-120"] }),
-    undefined,
-    null,
+  const result = await loadCatalog(fake.client, tracking({ work: ["work-0", "work-120"] }), undefined, null, {
     counts,
-  )
+  })
   expect(fake.calls.filter((call) => call.method === "session.list").map((call) => call.input)).toEqual([
     { project: "work", parentID: null, archived: false, limit: 100 },
   ])
@@ -166,9 +187,9 @@ test("a project with few of its roots tracked reads each tracked root, not its l
   const fake = server(roots(300), { projects: WORK })
   const counts: RootCounts = new Map()
   const state = tracking({ work: ["work-0", "work-150", "work-299"] })
-  await loadCatalog(fake.client, state, undefined, null, counts)
+  await loadCatalog(fake.client, state, undefined, null, { counts })
   fake.reset()
-  const result = await loadCatalog(fake.client, state, undefined, null, counts)
+  const result = await loadCatalog(fake.client, state, undefined, null, { counts })
   expect(fake.count("session.list")).toBe(0)
   expect(fake.count("session.get")).toBe(3)
   expect(
@@ -180,10 +201,10 @@ test("a listing that stops early is not repeated: the next refresh reads each tr
   const fake = server(roots(1000), { projects: WORK })
   const counts: RootCounts = new Map()
   const state = tracking({ work: Array.from({ length: 50 }, (_, index) => `work-${index + 900}`) })
-  await loadCatalog(fake.client, state, undefined, null, counts)
+  await loadCatalog(fake.client, state, undefined, null, { counts })
   expect([fake.count("session.list"), fake.count("session.get")]).toEqual([1, 50])
   fake.reset()
-  await loadCatalog(fake.client, state, undefined, null, counts)
+  await loadCatalog(fake.client, state, undefined, null, { counts })
   expect([fake.count("session.list"), fake.count("session.get")]).toEqual([0, 50])
 })
 
@@ -191,7 +212,7 @@ test("a project with most of its roots tracked lists them in full", async () => 
   const fake = server(roots(150), { projects: WORK })
   const state = tracking({ work: Array.from({ length: 80 }, (_, index) => `work-${index}`) })
   const counts: RootCounts = new Map([["work", 150]])
-  await loadCatalog(fake.client, state, undefined, null, counts)
+  await loadCatalog(fake.client, state, undefined, null, { counts })
   expect(fake.count("session.list")).toBe(2)
   expect(fake.count("session.get")).toBe(0)
   expect(counts.get("work")).toBe(150)
@@ -206,7 +227,7 @@ test("projects load in parallel, and never more than 8 requests are in flight", 
   )
   const counts: RootCounts = new Map(names.map((project) => [project, 300]))
   const fake = server(sessions, { projects })
-  const result = await loadCatalog(fake.client, state, undefined, null, counts)
+  const result = await loadCatalog(fake.client, state, undefined, null, { counts })
   expect(fake.count("session.get")).toBe(60)
   expect(fake.maxInFlight()).toBe(8)
   expect(rows(result.sessions, state).filter((row) => row.kind === "session")).toHaveLength(60)
@@ -215,7 +236,7 @@ test("projects load in parallel, and never more than 8 requests are in flight", 
 test("a tracked session that no longer exists is left out, as a listing leaves it out", async () => {
   const fake = server(roots(300), { projects: WORK })
   const state = tracking({ work: ["work-0", "deleted"] })
-  const result = await loadCatalog(fake.client, state, undefined, null, new Map([["work", 300]]))
+  const result = await loadCatalog(fake.client, state, undefined, null, { counts: new Map([["work", 300]]) })
   expect(result.sessions.map((session) => session.id)).toEqual(["work-0"])
   expect(result.issues).toEqual([])
 })
@@ -224,8 +245,8 @@ test("an unchanged catalog compares equal however its reads finish", async () =>
   const fake = server(roots(300), { projects: WORK })
   const state = tracking({ work: ["work-5", "work-1", "work-9"] })
   const counts: RootCounts = new Map([["work", 300]])
-  const first = await loadCatalog(fake.client, state, undefined, null, counts)
-  const second = await loadCatalog(fake.client, state, undefined, null, counts)
+  const first = await loadCatalog(fake.client, state, undefined, null, { counts })
+  const second = await loadCatalog(fake.client, state, undefined, null, { counts })
   expect(JSON.stringify(second.sessions)).toBe(JSON.stringify(first.sessions))
 })
 
@@ -235,7 +256,7 @@ test("an unchanged catalog compares equal however its reads finish", async () =>
  * current session not yet tracked. The expected rows are what the catalog produced when it listed every root
  * (checked against the implementation before 0.2.2).
  */
-function representative() {
+function representative(rpc?: "catalog" | "legacy" | "internal" | "transport") {
   const sessions: Fake[] = [
     ...roots(40, "work", "/work"),
     {
@@ -287,6 +308,7 @@ function representative() {
       active: ["child-1", "child-2"],
       approvals: { "/work-tree": ["child-3"] },
       questions: { "/play": ["play-2"] },
+      rpc,
     }),
   }
 }
@@ -330,10 +352,21 @@ const many = (): RootCounts =>
     ["/scratch", 1000],
   ])
 
-test("rows are the same whether the catalog lists projects or reads tracked sessions", async () => {
-  for (const counts of [new Map(), many()] as RootCounts[]) {
-    const { state, fake } = representative()
-    const result = await loadCatalog(fake.client, state, undefined, "other-1", counts)
+const LOCATION = { directory: "/work" }
+
+/** Each way of loading the catalog: listing, reading each session, the RPC, and the RPC's fallback. */
+const MODES: [string, Parameters<typeof representative>[0], () => CatalogMemory][] = [
+  ["listing", undefined, () => ({})],
+  ["reading", undefined, () => ({ counts: many() })],
+  ["rpc", "catalog", () => ({ location: LOCATION })],
+  ["older server part", "legacy", () => ({ location: LOCATION })],
+  ["failing rpc", "internal", () => ({ location: LOCATION })],
+]
+
+for (const [mode, rpc, memory] of MODES)
+  test(`rows are the same however the catalog loads: ${mode}`, async () => {
+    const { state, fake } = representative(rpc)
+    const result = await loadCatalog(fake.client, state, undefined, "other-1", memory())
     expect(rowValues(result.sessions, state)).toEqual(EXPECTED_ROWS)
     expect(
       rows(result.sessions, state)
@@ -351,17 +384,104 @@ test("rows are the same whether the catalog lists projects or reads tracked sess
     ).toEqual(["/play", "/scratch", "/work", "/work-tree"])
     expect(result.issues).toEqual([])
     expect(result.warning).toBe("")
-  }
-})
+  })
 
 test("reading tracked sessions skips the untracked roots: no lists, one read per session needed", async () => {
   const listing = representative()
   await loadCatalog(listing.fake.client, listing.state, undefined, "other-1")
   expect(listing.fake.count("session.list")).toBe(3)
   const reading = representative()
-  await loadCatalog(reading.fake.client, reading.state, undefined, "other-1", many())
+  await loadCatalog(reading.fake.client, reading.state, undefined, "other-1", { counts: many() })
   expect(reading.fake.count("session.list")).toBe(0)
   // work 5 tracked (one archived, one deleted), play 4, scratch 1, two running subagents, an approval's subagent,
   // the untracked root of a running subagent, and the current session.
   expect(reading.fake.count("session.get")).toBe(15)
+})
+
+test("with the server part's catalog method, the tracked sessions and every root take one RPC each", async () => {
+  const { state, fake } = representative("catalog")
+  await loadCatalog(fake.client, state, undefined, "other-1", { location: LOCATION })
+  expect(fake.count("session.list")).toBe(0)
+  expect(fake.count("session.get")).toBe(0)
+  const inputs = fake.calls
+    .filter((call) => call.method === "rpc.catalog")
+    .map((call) => call.input as { input: unknown; options: unknown })
+  expect(inputs).toEqual([
+    {
+      // Tracked sessions of open projects, then the current one; the closed project's are not read.
+      input: {
+        sessions: [
+          "work-3",
+          "tree-1",
+          "work-30",
+          "done",
+          "deleted",
+          "play-0",
+          "play-1",
+          "play-2",
+          "play-3",
+        ].concat(["scratch-1", "other-1"]),
+      },
+      options: { location: LOCATION },
+    },
+    // The running subagents' roots, then the roots of sessions with requests that are not known roots.
+    { input: { sessions: [], roots: ["child-1", "child-2"] }, options: { location: LOCATION } },
+    { input: { sessions: [], roots: ["child-3"] }, options: { location: LOCATION } },
+  ])
+  // Snapshot aside: projects, active sessions, 3 RPCs, and 2 attention reads for each of 4 directories.
+  expect(fake.calls).toHaveLength(13)
+})
+
+test("a tracked session that is gone is asked for once; an archived one keeps being read", async () => {
+  for (const [rpc, memory] of [
+    ["catalog", { location: LOCATION }],
+    [undefined, { counts: many() }],
+  ] as const) {
+    const { state, fake } = representative(rpc)
+    const kept: CatalogMemory = { ...memory }
+    await loadCatalog(fake.client, state, undefined, "other-1", kept)
+    expect([...kept.gone!]).toEqual(["deleted"])
+    fake.reset()
+    await loadCatalog(fake.client, state, undefined, "other-1", kept)
+    const asked = fake.calls.flatMap((call) =>
+      call.method === "session.get"
+        ? [(call.input as { sessionID: string }).sessionID]
+        : call.method === "rpc.catalog"
+          ? (call.input as { input: { sessions: string[] } }).input.sessions
+          : [],
+    )
+    expect(asked).toContain("done")
+    expect(asked).not.toContain("deleted")
+  }
+})
+
+test("an older server part answers once: later refreshes skip the method", async () => {
+  const { state, fake } = representative("legacy")
+  const memory: CatalogMemory = { location: LOCATION }
+  await loadCatalog(fake.client, state, undefined, "other-1", memory)
+  expect(fake.count("rpc.catalog")).toBe(1)
+  expect(memory.legacy).toBe(true)
+  fake.reset()
+  const result = await loadCatalog(fake.client, state, undefined, "other-1", memory)
+  expect(fake.count("rpc.catalog")).toBe(0)
+  expect(rowValues(result.sessions, state)).toEqual(EXPECTED_ROWS)
+})
+
+test("another RPC failure falls back for that refresh only", async () => {
+  const { state, fake } = representative("internal")
+  const memory: CatalogMemory = { location: LOCATION }
+  await loadCatalog(fake.client, state, undefined, "other-1", memory)
+  expect(memory.legacy).toBeUndefined()
+  fake.reset()
+  await loadCatalog(fake.client, state, undefined, "other-1", memory)
+  expect(fake.count("rpc.catalog")).toBeGreaterThan(0)
+})
+
+test("a lost connection fails the refresh, as any other read would", async () => {
+  const { state, fake } = representative("transport")
+  const memory: CatalogMemory = { location: LOCATION }
+  await expect(loadCatalog(fake.client, state, undefined, "other-1", memory)).rejects.toMatchObject({
+    reason: "Transport",
+  })
+  expect(memory.legacy).toBeUndefined()
 })

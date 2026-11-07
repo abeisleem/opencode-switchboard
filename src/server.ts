@@ -2,6 +2,7 @@ import { Plugin } from "@opencode/plugin"
 import { Switchboard } from "./rpc"
 import { createInboxStore } from "./store"
 import { reduce, type Admission } from "./model"
+import { readCatalog } from "./sessions"
 
 export default Plugin.define({
   id: "opencode-switchboard",
@@ -38,6 +39,8 @@ export default Plugin.define({
     })
     const registration = await ctx.rpc.register(Switchboard, {
       snapshot: () => store.snapshot(),
+      // Read-only: it never changes the state, so it announces nothing.
+      catalog: (input) => readCatalog((sessionID) => ctx.session.get({ sessionID }), input),
       act: async (action) => {
         const next = await store.act(action)
         await registration.events.emit("changed", { revision: next.revision })

@@ -10,6 +10,7 @@ import { InboxPanel, tint, type PanelProps } from "../src/panel"
 import type { MenuControls } from "../src/menu"
 import { initialState, parkedKey, reduce, type Action } from "../src/model"
 import plugin from "../src/tui"
+import { legacyCatalog } from "./legacy-catalog"
 
 test("panel mirrors the native rail: left indicators, no header, footer help only", async () => {
   const app = await testRender(() => <Demo />, { width: 100, height: 38 })
@@ -577,7 +578,8 @@ test("native session renames refresh mounted rows without waiting for the poll",
     options: {},
     location: { directory: "/work" },
     client: {
-      rpc: () => ({ snapshot: async () => state, events: { on: () => noop } }),
+      // An older server part: without its catalog method, the catalog lists sessions itself.
+      rpc: () => ({ snapshot: async () => state, catalog: legacyCatalog, events: { on: () => noop } }),
       project: { list: async () => [{ id: "work", name: "Work", canonical: "/work" }] },
       session: {
         active: async () => ({}),

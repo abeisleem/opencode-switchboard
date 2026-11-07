@@ -8,6 +8,7 @@ import { createStore } from "solid-js/store"
 import { actionSchema, initialState, type Action, type State } from "../src/model"
 import server from "../src/server"
 import plugin from "../src/tui"
+import { legacyCatalog } from "./legacy-catalog"
 
 type Route = ReturnType<Plugin.Context["ui"]["router"]["current"]>
 type Layer = ReturnType<Parameters<Plugin.Context["keymap"]["layer"]>[0]>
@@ -63,6 +64,8 @@ async function harness(
     global?: boolean
     /** The server lists no sessions, so the catalog has no rows. */
     unlisted?: boolean
+    /** The server part answers the catalog method, as 0.2.2 and later do; otherwise it lacks it. */
+    catalog?: boolean
   } = {},
 ) {
   // What the switchboard's RPC calls reject with; a test can change it while the TUI runs.
@@ -89,12 +92,18 @@ async function harness(
       : sessions.find((item) => item.id === sessionID)!
   const noop = () => {}
   let activeReads = 0
+  let sessionLists = 0
+  let catalogCalls = 0
   let snapshots = 0
   // What OpenCode would remember as the focus target when each dialog opened; see `modal` in src/tui.tsx.
   const dialogs: { saved: unknown; close: () => void; render?: () => JSX.Element; message?: string }[] = []
   // This TUI's `changed` listener; the fake server calls it, as OpenCode does, before `act` replies.
   let changed: ((event: { data: { revision: number } }) => void) | undefined
-  let rpc!: { snapshot: () => Promise<State>; act: (action: Action) => Promise<State> }
+  let rpc!: {
+    snapshot: () => Promise<State>
+    act: (action: Action) => Promise<State>
+    catalog: (input: { sessions: string[]; roots?: string[] }) => Promise<unknown>
+  }
   await server.setup({
     storage: {
       get: async () => saved,
@@ -176,6 +185,11 @@ async function harness(
           if (action.type === "visit") await options.visitGate
           return rpc.act(action)
         },
+        // An older server part by default: the catalog reads sessions itself, as these tests expect.
+        catalog: async (input: Parameters<typeof rpc.catalog>[0]) => {
+          catalogCalls++
+          return options.catalog ? rpc.catalog(input) : legacyCatalog()
+        },
         events: {
           on: (_type: string, listener: typeof changed) => {
             changed = listener
@@ -201,7 +215,10 @@ async function harness(
           activeReads++
           return options.active?.() ?? {}
         },
-        list: async () => ({ data: options.unlisted ? [] : sessions, cursor: {} }),
+        list: async () => {
+          sessionLists++
+          return { data: options.unlisted ? [] : sessions, cursor: {} }
+        },
       },
       permission: {
         request: {
@@ -363,6 +380,8 @@ async function harness(
     sessions,
     /** Catalog loads: each reads the active sessions once. */
     activeReads: () => activeReads,
+    sessionLists: () => sessionLists,
+    catalogCalls: () => catalogCalls,
     /** `snapshot` RPCs this TUI sent. */
     snapshots: () => snapshots,
     /** `session.create` calls this TUI made. */
@@ -1137,6 +1156,28 @@ test("a lost connection shows a muted Reconnecting… line, retries sooner, and 
   }
 })
 
+test("an older server part's missing catalog method is asked once, and again after a reconnect", async () => {
+  const run = await harness()
+  try {
+    await run.open()
+    await run.frame()
+    expect(run.catalogCalls()).toBe(1)
+    await run.open()
+    expect(run.catalogCalls()).toBe(1)
+    // The server may come back upgraded: the first refresh after the connection returns asks again.
+    run.failures.snapshot = transportError()
+    await run.open()
+    run.failures.snapshot = undefined
+    await run.open()
+    expect(run.catalogCalls()).toBe(2)
+    await run.open()
+    expect(run.catalogCalls()).toBe(2)
+    expect(run.app.captureCharFrame()).toContain("Task a")
+  } finally {
+    await run.dispose()
+  }
+})
+
 test("a change made without a connection says it was not saved", async () => {
   const run = await harness()
   try {
@@ -1163,6 +1204,19 @@ test("the first open loads the catalog once", async () => {
     // second load.
     await Bun.sleep(20)
     expect(run.activeReads()).toBe(1)
+  } finally {
+    await run.dispose()
+  }
+})
+
+test("with the server part's catalog method, rows load without listing any project's sessions", async () => {
+  // The server lists nothing, so only the catalog method can show these rows.
+  const run = await harness({ catalog: true, unlisted: true })
+  try {
+    await run.open()
+    expect(await until(() => run.app.captureCharFrame().includes("Task a"))).toBe(true)
+    expect(run.app.captureCharFrame()).toContain("Task b")
+    expect(run.sessionLists()).toBe(0)
   } finally {
     await run.dispose()
   }
