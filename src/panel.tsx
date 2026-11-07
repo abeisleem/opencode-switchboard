@@ -1,4 +1,15 @@
-import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, onMount, Show } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Index,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  untrack,
+} from "solid-js"
 import {
   MouseButton,
   RGBA,
@@ -7,7 +18,7 @@ import {
   type MouseEvent,
   type ScrollBoxRenderable,
 } from "@opentui/core"
-import { useRenderer } from "@opentui/solid"
+import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import {
   rowDetail,
   rowProject,
@@ -167,7 +178,14 @@ function FadeText(props: {
   )
 }
 
+/** OpenCode's own tab spinner frames and cadence. */
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+const SPINNER_INTERVAL = 80
+/** Lines rendered beyond each edge of the window, so a small scroll finds its rows already built. */
+const OVERSCAN = 2
+
+/** A row's lines: a session with a worktree line takes two. Rows sit one blank line apart. */
+const rowHeight = (row: Row) => (rowDetail(row) ? 2 : 1)
 
 /** A mouse-down handler that runs only for the left button; other buttons pass through untouched. */
 const left = (run: () => void) => (event: MouseEvent) => {
@@ -219,6 +237,7 @@ export type PanelProps = {
 
 export function InboxPanel(props: PanelProps) {
   const renderer = useRenderer()
+  const dimensions = useTerminalDimensions()
   const restored = props.selectionMemory ? { ...props.selectionMemory } : undefined
   const owner = Symbol("inbox panel")
   if (props.selectionMemory) props.selectionMemory.owner = owner
@@ -226,6 +245,7 @@ export function InboxPanel(props: PanelProps) {
   const [hovered, setHovered] = createSignal<string>()
   const [keyboardHighlight, setKeyboardHighlight] = createSignal(false)
   let scroll: ScrollBoxRenderable | undefined
+  let disposed = false
   const items = createMemo(() => rows(props.sessions, props.state))
   const selection = createMemo<{
     items: Row[]
@@ -262,20 +282,98 @@ export function InboxPanel(props: PanelProps) {
   const sameKeys = (a: string[], b: string[]) => a.length === b.length && a.every((key, i) => key === b[i])
   const keys = createMemo(() => items().map(rowKey), [], { equals: sameKeys })
   const entries = createMemo(() => new Map(items().map((row, index) => [rowKey(row), { row, index }])))
+  /** Each row's first line in the scrolled content, and the content's height, from the known row heights. */
+  const layout = createMemo(() => {
+    const tops: number[] = []
+    let line = 0
+    for (const row of items()) {
+      tops.push(line)
+      line += rowHeight(row) + 1
+    }
+    return { tops, height: Math.max(0, line - 1) }
+  })
+  // The scroll position, kept as the scrollbox reports it; see the window below.
+  const [scrollTop, setScrollTop] = createSignal(0)
+  // The scrollbox's height once laid out. Only the spinner reads it: a change during layout must not add rows.
+  const [viewportHeight, setViewportHeight] = createSignal(0)
+  /** The first visible line. The scrollbox clamps its position when the content shrinks; clamp here first. */
+  const shownTop = () => {
+    const height = untrack(() => (scroll && !scroll.isDestroyed ? scroll.viewport.height : 0))
+    return Math.max(0, Math.min(scrollTop(), layout().height - height))
+  }
+  /** Whether a row's lines meet `[from, to)`. */
+  const meets = (index: number, from: number, to: number) => {
+    const top = layout().tops[index]!
+    return top < to && top + rowHeight(items()[index]!) > from
+  }
+  type Span = { first: number; last: number }
+  const sameSpan = (a: Span, b: Span) => a.first === b.first && a.last === b.last
+  /**
+   * The rows that can be on screen: mounting the panel, which the host does on every session switch, builds only
+   * these. The window spans the terminal's height, which no viewport exceeds, so it never waits on a layout pass.
+   */
+  const needed = createMemo(
+    () => {
+      const from = shownTop() - OVERSCAN
+      const to = shownTop() + dimensions().height + OVERSCAN
+      const count = items().length
+      let first = 0
+      while (first < count && !meets(first, from, to)) first++
+      let last = first
+      while (last + 1 < count && meets(last + 1, from, to)) last++
+      return { first, last: first < count ? last : first - 1 }
+    },
+    { first: 0, last: -1 },
+    { equals: sameSpan },
+  )
+  // The renderer routes pointer events by the last frame's layout, so a burst of wheel events between two frames
+  // must not lose the row under the pointer: until the next frame, the window only grows as it moves. A jump far
+  // away (the cursor moving by key) starts afresh.
+  const [frames, setFrames] = createSignal(0)
+  let pruned = 0
+  const span = createMemo<Span>(
+    (before) => {
+      const next = needed()
+      if (frames() !== pruned) {
+        pruned = frames()
+        return next
+      }
+      const overlap = next.first <= before.last + 1 && before.first <= next.last + 1
+      if (!overlap || next.last < next.first || before.last < before.first) return next
+      return { first: Math.min(next.first, before.first), last: Math.max(next.last, before.last) }
+    },
+    { first: 0, last: -1 },
+    { equals: sameSpan },
+  )
+  const prune = () => {
+    if (!disposed && !sameSpan(span(), needed())) setFrames((count) => count + 1)
+  }
+  createEffect(
+    on(needed, () => {
+      renderer.off("frame", prune)
+      renderer.once("frame", prune)
+    }),
+  )
+  const windowKeys = createMemo(() => keys().slice(span().first, span().last + 1), [], { equals: sameKeys })
+  // Blank lines that stand in for the rows outside the window, so the content keeps its height and scroll range.
+  // The column's gap adds the line between a spacer and its neighbor row.
+  const above = () => (span().first > 0 ? layout().tops[span().first]! - 1 : 0)
+  const below = () => {
+    const { last } = span()
+    if (last < 0 || last >= items().length - 1) return 0
+    return layout().height - (layout().tops[last]! + rowHeight(items()[last]!)) - 1
+  }
   function keepVisible() {
     if (!scroll || cursor() < 0 || selection().pending || !scroll.viewport.height) return
     // Use the known row heights: newly reconciled renderables can still have
     // an old/zero layout here, which would incorrectly scroll back to the top.
-    const top = items()
-      .slice(0, cursor())
-      .reduce((sum, row) => sum + (rowDetail(row) ? 3 : 2), 0)
-    const bottom = top + (rowDetail(current()!) ? 2 : 1)
+    const top = layout().tops[cursor()]!
+    const bottom = top + rowHeight(current()!)
     if (top < scroll.scrollTop) scroll.scrollTo(top)
     else if (bottom > scroll.scrollTop + scroll.viewport.height)
       scroll.scrollTo(bottom - scroll.viewport.height)
   }
   let restoring = Boolean(restored && (restored.scrollTop > 0 || restored.index > 0))
-  let disposed = false
   function restoreViewport() {
     if (
       disposed ||
@@ -308,6 +406,14 @@ export function InboxPanel(props: PanelProps) {
     ),
   )
   onMount(scheduleRestore)
+  onMount(() => {
+    // The scrollbar reports every position change synchronously: a wheel, a scrollTo, or a clamp.
+    const bar = scroll!.verticalScrollBar
+    const moved = (event: { position: number }) => setScrollTop(event.position)
+    bar.on("change", moved)
+    onCleanup(() => bar.off("change", moved))
+    setScrollTop(scroll!.scrollTop)
+  })
   function remember() {
     if (!props.selectionMemory || props.selectionMemory.owner !== owner) return
     const selected = selection()
@@ -323,6 +429,7 @@ export function InboxPanel(props: PanelProps) {
   }
   onCleanup(() => {
     disposed = true
+    renderer.off("frame", prune)
     renderer.off("frame", restoreViewport)
     remember()
   })
@@ -422,18 +529,22 @@ export function InboxPanel(props: PanelProps) {
       if (row?.kind === "session") props.act({ type: "session-remove", sessionID: row.session.id })
     },
   })
-  // One clock drives session spinners and activity summarized by collapsed headings.
-  const animating = createMemo(() =>
-    items().some((row) =>
-      row.kind === "heading"
-        ? row.badges.some((badge) => badge.kind === "running")
-        : row.session.running || row.session.status === "Queued",
-    ),
-  )
+  // One clock drives session spinners and activity summarized by collapsed headings. It ticks only while one of
+  // them is on screen: not scrolled out of view, and not hidden in a fold (folded rows are not in `items`).
+  const animating = createMemo(() => {
+    const from = shownTop()
+    const to = from + (viewportHeight() || dimensions().height)
+    return items().some(
+      (row, index) =>
+        (row.kind === "heading"
+          ? row.badges.some((badge) => badge.kind === "running")
+          : row.session.running || row.session.status === "Queued") && meets(index, from, to),
+    )
+  })
   const [frame, setFrame] = createSignal(0)
   createEffect(() => {
     if (!animating()) return
-    const timer = setInterval(() => setFrame((value) => (value + 1) % SPINNER.length), 80)
+    const timer = setInterval(() => setFrame((value) => (value + 1) % SPINNER.length), SPINNER_INTERVAL)
     onCleanup(() => clearInterval(timer))
   })
   const activity = () => SPINNER[frame()]!
@@ -454,7 +565,12 @@ export function InboxPanel(props: PanelProps) {
   }
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0} paddingTop={1}>
-      <scrollbox ref={scroll} flexGrow={1} minHeight={0}>
+      <scrollbox
+        ref={scroll}
+        flexGrow={1}
+        minHeight={0}
+        onSizeChange={() => setViewportHeight(scroll?.height ?? 0)}
+      >
         <Show
           when={items().length}
           fallback={
@@ -464,7 +580,8 @@ export function InboxPanel(props: PanelProps) {
           }
         >
           <box flexDirection="column" gap={1}>
-            <For each={keys()}>
+            <Show when={above()}>{(height) => <box height={height()} flexShrink={0} />}</Show>
+            <For each={windowKeys()}>
               {(key) => {
                 // Rows keep their identity across refreshes; only what changed re-renders.
                 // Keep the last entry so a row being removed never reads a missing one.
@@ -526,126 +643,142 @@ export function InboxPanel(props: PanelProps) {
                 const item = () => entry().row as Extract<Row, { kind: "session" }>
                 const session = () => item().session
                 const indent = () => (item().depth - 1) * 2
+                const out = () => {
+                  setKeyboardHighlight(false)
+                  if (hovered() === key) setHovered(undefined)
+                }
+                const down = (event: MouseEvent) => {
+                  // A right-click opens the row's menu, if it has one (a Parked heading does not). It never
+                  // moves the cursor or opens anything, and the host never sees it: focus stays where it is,
+                  // and OpenCode does not act on it.
+                  if (event.button === MouseButton.RIGHT) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    if (menuItems(entry().row).length) setMenu({ key, x: event.x, y: event.y })
+                    return
+                  }
+                  // The host focuses the panel on mouse down; an unfocused click acts without stealing focus.
+                  if (!props.focused) event.stopPropagation()
+                  // Only the left button opens a session or flips a fold.
+                  if (event.button !== MouseButton.LEFT) return
+                  setRequested({ key })
+                  enter()
+                }
+                // A one-line row lays its parts out in the row's own box, with no inner box: each row costs a few
+                // renderables, and the host builds every visible row again on each session switch.
+                if (key.startsWith("heading:"))
+                  return (
+                    <box
+                      flexDirection="row"
+                      alignItems="center"
+                      height={1}
+                      paddingLeft={1 + heading().depth * 2}
+                      backgroundColor={fill()}
+                      onMouseMove={hover}
+                      onMouseOver={hover}
+                      onMouseOut={out}
+                      onMouseDown={down}
+                    >
+                      {/* A control, not content: dim until the row is lit. */}
+                      <text
+                        selectable={false}
+                        width={2}
+                        flexShrink={0}
+                        fg={lit() ? props.colors.text : props.colors.detail}
+                      >
+                        {heading().closed ? "▸ " : "▾ "}
+                      </text>
+                      {/* A project reads as a directory: underlined, with a trailing `/` that fades with it. */}
+                      <FadeText
+                        text={heading().depth === 0 ? `${heading().title}/` : heading().title}
+                        fg={headingColor()}
+                        background={background()}
+                        underline={heading().depth === 0}
+                        scroll={lit()}
+                      />
+                      <Show when={heading().badges.length}>
+                        {/* The margin keeps a faded name off the first badge. */}
+                        <box
+                          flexDirection="row"
+                          alignItems="center"
+                          height={1}
+                          flexShrink={0}
+                          gap={2}
+                          marginLeft={1}
+                        >
+                          <For each={heading().badges}>
+                            {(badge) => (
+                              <box flexDirection="row" alignItems="center" height={1} gap={1}>
+                                {/* Symbols take their session-row colors; counts stay with the heading. */}
+                                <text selectable={false} width={1} height={1} fg={props.colors[badge.kind]}>
+                                  {badgeSymbol(badge.kind)}
+                                </text>
+                                <text selectable={false} height={1} fg={headingColor()}>
+                                  {badge.count}
+                                </text>
+                              </box>
+                            )}
+                          </For>
+                        </box>
+                      </Show>
+                      {heading().depth === 0
+                        ? close(() => props.act({ type: "project-close", project: heading().key }))
+                        : null}
+                    </box>
+                  )
+                const detail = () => rowDetail(item())
+                const line = () => (
+                  <>
+                    {/* Indicators keep their status colors on the hover fill. */}
+                    <text
+                      selectable={false}
+                      width={3 + indent()}
+                      flexShrink={0}
+                      fg={indicator(session())[1]}
+                      wrapMode="none"
+                    >
+                      {/* A nested row's indicator sits under its heading's triangle, beside the title. */}
+                      {`${" ".repeat(indent())}${indicator(session())[0].padStart(2)} `}
+                    </text>
+                    {/* As in the native rail: bright when hovered or current, bold only when current. */}
+                    <FadeText
+                      text={session().title}
+                      fg={lit() || targeted() || current() ? props.colors.text : props.colors.muted}
+                      background={background()}
+                      bold={current()}
+                      scroll={lit()}
+                    />
+                    {close(() => props.act({ type: "session-remove", sessionID: session().id }))}
+                  </>
+                )
                 return (
                   <box
-                    flexDirection="column"
-                    height={rowDetail(entry().row) ? 2 : 1}
+                    flexDirection={detail() ? "column" : "row"}
+                    height={detail() ? 2 : 1}
                     backgroundColor={fill()}
                     onMouseMove={hover}
                     onMouseOver={hover}
-                    onMouseOut={() => {
-                      setKeyboardHighlight(false)
-                      if (hovered() === key) setHovered(undefined)
-                    }}
-                    onMouseDown={(event) => {
-                      // A right-click opens the row's menu, if it has one (a Parked heading does not). It never
-                      // moves the cursor or opens anything, and the host never sees it: focus stays where it is,
-                      // and OpenCode does not act on it.
-                      if (event.button === MouseButton.RIGHT) {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        if (menuItems(entry().row).length) setMenu({ key, x: event.x, y: event.y })
-                        return
-                      }
-                      // The host focuses the panel on mouse down; an unfocused click acts without stealing focus.
-                      if (!props.focused) event.stopPropagation()
-                      // Only the left button opens a session or flips a fold.
-                      if (event.button !== MouseButton.LEFT) return
-                      setRequested({ key })
-                      enter()
-                    }}
+                    onMouseOut={out}
+                    onMouseDown={down}
                   >
-                    {key.startsWith("heading:") ? (
-                      <box
-                        flexDirection="row"
-                        alignItems="center"
-                        height={1}
-                        paddingLeft={1 + heading().depth * 2}
-                      >
-                        {/* A control, not content: dim until the row is lit. */}
-                        <text
-                          selectable={false}
-                          width={2}
-                          flexShrink={0}
-                          fg={lit() ? props.colors.text : props.colors.detail}
-                        >
-                          {heading().closed ? "▸ " : "▾ "}
-                        </text>
-                        {/* A project reads as a directory: underlined, with a trailing `/` that fades with it. */}
-                        <FadeText
-                          text={heading().depth === 0 ? `${heading().title}/` : heading().title}
-                          fg={headingColor()}
-                          background={background()}
-                          underline={heading().depth === 0}
-                          scroll={lit()}
-                        />
-                        <Show when={heading().badges.length}>
-                          {/* The margin keeps a faded name off the first badge. */}
-                          <box
-                            flexDirection="row"
-                            alignItems="center"
-                            height={1}
-                            flexShrink={0}
-                            gap={2}
-                            marginLeft={1}
-                          >
-                            <For each={heading().badges}>
-                              {(badge) => (
-                                <box flexDirection="row" alignItems="center" height={1} gap={1}>
-                                  {/* Symbols take their session-row colors; counts stay with the heading. */}
-                                  <text selectable={false} width={1} height={1} fg={props.colors[badge.kind]}>
-                                    {badgeSymbol(badge.kind)}
-                                  </text>
-                                  <text selectable={false} height={1} fg={headingColor()}>
-                                    {badge.count}
-                                  </text>
-                                </box>
-                              )}
-                            </For>
+                    <Show when={detail()} fallback={line()}>
+                      {(detail) => (
+                        <>
+                          <box flexDirection="row" height={1}>
+                            {line()}
                           </box>
-                        </Show>
-                        {heading().depth === 0
-                          ? close(() => props.act({ type: "project-close", project: heading().key }))
-                          : null}
-                      </box>
-                    ) : (
-                      <>
-                        <box flexDirection="row" height={1}>
-                          {/* Indicators keep their status colors on the hover fill. */}
-                          <text
-                            selectable={false}
-                            width={3 + indent()}
-                            flexShrink={0}
-                            fg={indicator(session())[1]}
-                            wrapMode="none"
-                          >
-                            {/* A nested row's indicator sits under its heading's triangle, beside the title. */}
-                            {`${" ".repeat(indent())}${indicator(session())[0].padStart(2)} `}
-                          </text>
-                          {/* As in the native rail: bright when hovered or current, bold only when current. */}
-                          <FadeText
-                            text={session().title}
-                            fg={lit() || targeted() || current() ? props.colors.text : props.colors.muted}
-                            background={background()}
-                            bold={current()}
-                            scroll={lit()}
-                          />
-                          {close(() => props.act({ type: "session-remove", sessionID: session().id }))}
-                        </box>
-                        <Show when={rowDetail(item())}>
-                          {(detail) => (
-                            // Ends where the title does, before the close target and its gap.
-                            <box flexDirection="row" height={1} paddingLeft={3 + indent()} paddingRight={3}>
-                              <FadeText text={detail()} fg={props.colors.detail} background={background()} />
-                            </box>
-                          )}
-                        </Show>
-                      </>
-                    )}
+                          {/* Ends where the title does, before the close target and its gap. */}
+                          <box flexDirection="row" height={1} paddingLeft={3 + indent()} paddingRight={3}>
+                            <FadeText text={detail()} fg={props.colors.detail} background={background()} />
+                          </box>
+                        </>
+                      )}
+                    </Show>
                   </box>
                 )
               }}
             </For>
+            <Show when={below()}>{(height) => <box height={height()} flexShrink={0} />}</Show>
           </box>
         </Show>
       </scrollbox>
