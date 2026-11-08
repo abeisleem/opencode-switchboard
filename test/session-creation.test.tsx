@@ -88,6 +88,7 @@ async function fixture(projectID: string, options: { listed?: boolean } = {}) {
       form: { list: async () => ({ data: [] }) },
     },
     data: {
+      location: { vcs: { info: () => undefined } },
       on: (type: string, listener: (event: { data: { sessionID: string } }) => void) => {
         listeners.set(type, listener)
         return () => listeners.delete(type)
@@ -118,6 +119,7 @@ async function fixture(projectID: string, options: { listed?: boolean } = {}) {
       decrease: (value: RGBA) => value,
     },
     ui: {
+      format: { path: (value: string) => value },
       router: {
         current: route,
         navigate,

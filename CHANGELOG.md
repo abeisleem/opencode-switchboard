@@ -13,6 +13,10 @@ working, and are never worse than 0.2.1.
   184 ms. Against a 0.2.1 server part, the panel makes the same requests as 0.2.1 (plus one, once, to find
   the new method missing), now loading the projects in parallel: 287 ms instead of 576 ms in the first case,
   and 95 ms instead of 184 ms in the second.
+- The panel's footer shows the working directory and git branch at the bottom left, such as
+  `~/repos/opencode-switchboard:main`, as OpenCode's sidebar does while the switchboard is closed. It shows the
+  conversation you are viewing, or the home screen's directory, and follows a branch switch. Long paths shorten
+  the way OpenCode's do. An error or `Reconnecting…` takes its place while it lasts.
 
 ## 0.2.1 (2026-11-06)
 
