@@ -17,6 +17,15 @@ working, and are never worse than 0.2.1.
   `~/repos/opencode-switchboard:main`, as OpenCode's sidebar does while the switchboard is closed. It shows the
   conversation you are viewing, or the home screen's directory, and follows a branch switch. Long paths shorten
   the way OpenCode's do. An error or `Reconnecting…` takes its place while it lasts.
+- Switching sessions with the switchboard open is faster. OpenCode rebuilds the panel on every switch, and it
+  now builds only the rows on screen: with 45 tracked sessions in a 45-line terminal, that takes 22 ms instead of
+  46 ms, and with 90 tracked sessions, 22 ms instead of 67 ms. A session opened from OpenCode itself (Ctrl+O, its
+  session list) gets the panel back as the conversation appears, instead of after the switchboard's server
+  round trip.
+- The spinner of a running session ticks only while it is on screen. Scrolled out of view, it no longer redraws
+  the terminal 12.5 times a second.
+- `<leader>i` with the switchboard already open no longer reloads its sessions when a reload is under way or
+  finished less than 2 seconds ago.
 
 ## 0.2.1 (2026-11-06)
 

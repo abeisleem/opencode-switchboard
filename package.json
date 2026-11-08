@@ -30,7 +30,7 @@
     "pack:dry-run": "bun pm pack --dry-run",
     "prepublishOnly": "bun run typecheck && bun test test/model.test.ts test/selection.test.tsx test/panel.test.tsx test/attention.test.ts test/catalog.test.ts test/sessions.test.ts test/palette.test.ts test/session-creation.test.tsx test/deletion.test.tsx test/navigation.test.tsx test/error-text.test.ts test/file-path.test.ts && npm run test:releases",
     "postpublish": "gh workflow run sync-releases.yml --ref main -f version=$npm_package_version",
-    "bench": "bun test ./bench/panel.bench.tsx",
+    "bench": "bun test ./bench/panel.bench.tsx ./bench/mount.bench.tsx",
     "smoke:package": "node scripts/smoke-package.mjs",
     "build": "bun scripts/build.ts",
     "prepack": "bun run build"
